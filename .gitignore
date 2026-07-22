@@ -1,23 +1,42 @@
-HELP.md
+### Maven build output ###
 target/
-.mvn/wrapper/maven-wrapper.jar
 !**/src/main/**/target/
 !**/src/test/**/target/
 
-### STS ###
+### Vaadin generated files ###
+node_modules/
+src/main/frontend/generated/
+src/main/frontend/index.html
+pnpmfile.js
+.npmrc
+vite.generated.ts
+
+### Test-generated files ###
+drivers/
+error-screenshots/
+
+### Local environment files ###
+.env
+.env.*
+!.env.example
+
+### Eclipse / STS ###
 .apt_generated
 .classpath
 .factorypath
 .project
-.settings
+.settings/
 .springBeans
-.sts4-cache
+.sts4-cache/
 
 ### IntelliJ IDEA ###
-.idea
+.idea/
 *.iws
 *.iml
 *.ipr
+out/
+!**/src/main/**/out/
+!**/src/test/**/out/
 
 ### NetBeans ###
 /nbproject/private/
@@ -31,3 +50,7 @@ build/
 
 ### VS Code ###
 .vscode/
+
+### Operating system ###
+.DS_Store
+Thumbs.db
