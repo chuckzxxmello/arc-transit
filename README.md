@@ -1,4 +1,4 @@
-# Arc Transit System
+<img src="https://readme-typing-svg.herokuapp.com?font=Anaheim&size=32&duration=3000&pause=2000&color=1F51FF&width=1000&lines=Arc+Transit+System;Transit+Operations+Command+and+Fleet+Intelligence+Platform" alt="Typing SVG" />
 
 A bus transit management system built as a university project. Handles fleet registration, driver management, route planning, dispatching, incident reporting, maintenance tracking, and operational dashboards.
 
