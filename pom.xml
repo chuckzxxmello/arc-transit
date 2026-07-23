@@ -132,6 +132,16 @@
 			<scope>test</scope>
 		</dependency>
 
+		<!--
+			Provides Spring Security authentication, session management,
+			password handling, CSRF protection, and authorization support.
+		-->
+		<dependency>
+			<groupId>org.springframework.boot</groupId>
+			<artifactId>spring-boot-starter-security</artifactId>
+		</dependency>
+
+
 	</dependencies>
 
 	<build>
