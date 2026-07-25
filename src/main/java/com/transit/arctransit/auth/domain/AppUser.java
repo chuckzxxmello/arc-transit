@@ -11,6 +11,9 @@ import jakarta.persistence.OneToMany;
 import jakarta.persistence.Table;
 import jakarta.persistence.Version;
 
+import jakarta.persistence.EnumType;
+import jakarta.persistence.Enumerated;
+
 import java.time.Instant;
 import java.util.HashSet;
 import java.util.Set;
@@ -41,8 +44,9 @@ public class AppUser {
     @Column(name = "email", length = 254)
     private String email;
 
+    @Enumerated(EnumType.STRING)
     @Column(name = "account_status", length = 20, nullable = false)
-    private String accountStatus;
+    private AccountStatus accountStatus;
 
     @Column(name = "last_login_at")
     private Instant lastLoginAt;
@@ -67,6 +71,21 @@ public class AppUser {
         // JPA
     }
 
+    public AppUser(String username, String passwordHash, String displayName, String email) {
+        this.username = username;
+        this.passwordHash = passwordHash;
+        this.displayName = displayName;
+        this.email = email;
+        this.accountStatus = AccountStatus.ACTIVE;
+        this.createdAt = Instant.now();
+        this.updatedAt = this.createdAt;
+    }
+
+    public void changeAccountStatus(AccountStatus newStatus) {
+        this.accountStatus = newStatus;
+        this.updatedAt = Instant.now();
+    }
+
     public Long getId() {
         return id;
     }
@@ -87,7 +106,8 @@ public class AppUser {
         return email;
     }
 
-    public String getAccountStatus() {
+    @Enumerated(EnumType.STRING)
+    public AccountStatus getAccountStatus() {
         return accountStatus;
     }
 
@@ -115,6 +135,6 @@ public class AppUser {
      * Returns true when the account is allowed to authenticate.
      */
     public boolean isActive() {
-        return "ACTIVE".equals(accountStatus) && archivedAt == null;
+        return accountStatus == AccountStatus.ACTIVE && archivedAt == null;
     }
 }

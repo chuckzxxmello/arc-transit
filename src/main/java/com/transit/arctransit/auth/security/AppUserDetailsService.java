@@ -1,5 +1,6 @@
 package com.transit.arctransit.auth.security;
 
+import com.transit.arctransit.auth.domain.AccountStatus;
 import com.transit.arctransit.auth.domain.AppUser;
 import com.transit.arctransit.auth.domain.AppUserRepository;
 import org.springframework.security.core.authority.SimpleGrantedAuthority;
@@ -10,6 +11,7 @@ import org.springframework.security.core.userdetails.UsernameNotFoundException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.util.Locale;
 import java.util.List;
 
 /**
@@ -32,16 +34,23 @@ public class AppUserDetailsService implements UserDetailsService {
     @Override
     public UserDetails loadUserByUsername(String username) {
 
+        String normalizedUsername = username == null
+                ? ""
+                : username.trim().toLowerCase(Locale.ROOT);
+
+        if (normalizedUsername.isBlank()) {
+            throw new UsernameNotFoundException("Account not found.");
+        }
+
         AppUser appUser = userRepository
-                .findByUsername(username.toLowerCase())
-                .orElseThrow(() -> new UsernameNotFoundException(
-                        "No account found for username: " + username));
+                .findByUsername(normalizedUsername)
+                .orElseThrow(() -> new UsernameNotFoundException("Account not found."));
 
         /*
          * Map each assigned role to a Spring Security authority.
          *
          * Example:
-         * role_code SYSTEM_ADMIN  →  ROLE_SYSTEM_ADMIN
+         * role_code SYSTEM_ADMIN → ROLE_SYSTEM_ADMIN
          */
         List<SimpleGrantedAuthority> authorities = appUser.getUserRoles()
                 .stream()
@@ -51,10 +60,10 @@ public class AppUserDetailsService implements UserDetailsService {
         return new User(
                 appUser.getUsername(),
                 appUser.getPasswordHash(),
-                appUser.isActive(),   // enabled
-                true,                 // accountNonExpired
-                true,                 // credentialsNonExpired
-                !"LOCKED".equals(appUser.getAccountStatus()), // accountNonLocked
+                appUser.isActive(), // enabled
+                true, // accountNonExpired
+                true, // credentialsNonExpired
+                appUser.getAccountStatus() != AccountStatus.LOCKED, // accountNonLocked
                 authorities);
     }
 }

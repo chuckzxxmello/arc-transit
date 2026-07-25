@@ -6,9 +6,6 @@ import jakarta.persistence.Id;
 import jakarta.persistence.Table;
 
 /**
- * Immutable role definition seeded by Flyway.
- *
- * Version 1 roles:
  * - SYSTEM_ADMIN
  * - OPERATIONS_STAFF
  */

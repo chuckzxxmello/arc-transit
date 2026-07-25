@@ -429,6 +429,74 @@ successfully.
 
 ---
 
+## Friday — July 24, 2026
+
+### 1. Continued the authentication database migration review
+
+- Reviewed the current Fleet and authentication Flyway migrations against the
+  manually rebuilt repository.
+- Continued revising the SQL comments so they describe actual PostgreSQL and JPA
+  behavior rather than generated assumptions.
+- Corrected the `app_users` identity-column declaration to use valid PostgreSQL
+  identity syntax.
+- Retained PostgreSQL as the final data-integrity boundary for identifiers,
+  account states, uniqueness, relationships, and role assignments.
+- Deferred the final SQL completion decision until every V1 and V2 section has
+  been reviewed individually.
+
+### 2. Removed the unsafe permanent development-administrator migration
+
+- Removed `V3__seed_dev_admin.sql` from the current migration sequence.
+- Confirmed that a known development password or placeholder password hash
+  should not become part of permanent Flyway migration history.
+- Retained the fixed `SYSTEM_ADMIN` and `OPERATIONS_STAFF` role definitions as
+  database reference data.
+- Separated required role data from development-only account creation.
+
+### 3. Replayed the migrations against a clean PostgreSQL database
+
+- Removed the disposable local PostgreSQL volume so Flyway could rebuild the
+  database from an empty state.
+- Started the PostgreSQL service again through Docker Compose.
+- Confirmed that the PostgreSQL container reached its healthy state.
+- Used the reset only because the current development database contained no
+  permanent data.
+
+Representative commands:
+
+```cmd
+docker compose down -v
+docker compose up -d postgres
+docker compose ps
+```
+
+### 4. Modernized AppUser Entity and Auth Settings (Saturday — July 25, 2026)
+
+- Fixed a bug where `AccountStatus` was an unused enum and the database state was stored as a raw String in `AppUser.java`.
+- **Why this was needed**: Strings lack type-safety. Using `@Enumerated(EnumType.STRING)` allows Hibernate to safely map Java Enums to the database VARCHAR column. If a developer types "active" instead of "ACTIVE", it won't compile, preventing a runtime error. 
+- **Documentation Verification**: [Jakarta Persistence 3.2 - Enumerated Annotation](https://jakarta.ee/specifications/persistence/3.2/jakarta-persistence-spec-3.2#a14935) (Ctrl+F: `EnumType.STRING`).
+- Updated `isActive()` in `AppUser.java` to use `==` instead of `.equals()`. Because Java Enums are singletons, `==` is null-safe, faster, and considered best practice.
+- Fixed `AppUserDetailsService.java` to properly compare the enum instead of comparing a literal String `"LOCKED"` to an `AccountStatus` object, which would have compiled but always incorrectly evaluated to true.
+- **Documentation Verification**: [Spring Security UserDetails](https://docs.spring.io/spring-security/reference/servlet/authentication/passwords/user-details.html) (Ctrl+F: `isEnabled`). We separated `enabled` and `accountNonLocked` checks so Spring Security throws the exact exception (`DisabledException` vs `LockedException`) based on the correct default pre-authentication check order.
+- Added `spring.profiles.active=dev` to `application.properties`.
+- **Why this was needed**: The `DevAdminSeeder` is annotated with `@Profile("dev")`. Because the profile wasn't active, the admin account was never seeded into PostgreSQL on startup, meaning no one could log in.
+- **Documentation Verification**: [Spring Boot Profiles](https://docs.spring.io/spring-boot/reference/features/profiles.html) (Ctrl+F: `spring.profiles.active`).
+
+### 5. Exception Foundation and User Administration Service (Phase 2)
+
+- Created a shared `com.transit.arctransit.common.exception` package to house domain-neutral standard exceptions (`ResourceNotFoundException`, `BusinessConflictException`, `CommandValidationException`).
+- **Why this was needed**: Throwing generic `RuntimeException`s makes it impossible to globally handle different HTTP status codes cleanly. These exceptions extend `RuntimeException` and use `@ResponseStatus`, allowing Spring MVC to translate them into 404, 409, and 400 HTTP errors automatically, requiring zero boilerplate `@ExceptionHandler` code.
+- **Documentation Verification**: [Spring Boot Error Handling](https://docs.spring.io/spring-boot/reference/web/spring-mvc.html#web.servlet.spring-mvc.error-handling) (Ctrl+F: `@ResponseStatus`).
+- Created the `UserAdministrationService` public API contract using **Java 21 Records** (`UserView`, `CurrentUserView`, `CreateUserCommand`, etc.) located in the `auth` root package.
+- **Why this was needed**: Java 21 `record`s completely eliminate the need for mutable DTOs, Lombok `@Data`, getters, and setters. They are inherently thread-safe and immutable. The root package was chosen so they form the public API of the Authentication module as enforced by Spring Modulith.
+- **Documentation Verification**: [Java 21 Records](https://docs.oracle.com/en/java/javase/21/language/records.html) (Ctrl+F: `record class`). 
+- Implemented `AppUserAdministrationService` inside `com.transit.arctransit.auth.application`, using implicit constructor injection (no `@Autowired`).
+- **Why this was needed**: Spring Modulith treats subpackages like `application` as internal. Other modules (like `fleet`) cannot access this class directly, forcing them to depend solely on the public interface `UserAdministrationService`, thereby decoupling the system.
+- Enforced security rules using `@PreAuthorize("hasRole('SYSTEM_ADMIN')")` directly on the service methods, ensuring authorization checks occur regardless of whether the Vaadin UI or a future REST API calls the service.
+- **Documentation Verification**: [Spring Security Method Security](https://docs.spring.io/spring-security/reference/servlet/authorization/method-security.html) (Ctrl+F: `@PreAuthorize`).
+
+---
+
 # Repository Checkpoints
 
 The following database-related commits were visible in the local Git history
@@ -505,35 +573,30 @@ The following items are not yet implemented in the manual rebuild:
 
 ---
 
-# Next Implementation Target — Week 6
+## Week 6 — Current Verified Position
 
-Week 6 focuses on **Security, Audit, and Fleet**.
+Verified and **Completed**:
 
-The planned order is:
+- V1 Fleet migration exists and can be replayed;
+- V2 authentication migration exists and can be replayed;
+- fixed `SYSTEM_ADMIN` and `OPERATIONS_STAFF` role definitions are migrated;
+- Spring Security and Vaadin security components are present;
+- PostgreSQL-backed user lookup components are present;
+- BCrypt password encoding infrastructure is present;
+- a Vaadin login route is present;
+- the Spring application context loads;
+- the Spring Modulith verification test passes;
+- the Maven test command completes with `BUILD SUCCESS`;
+- **authentication Java implementation** (completed with `AppUser` records and enums);
+- **administrator bootstrap** (completed with `DevAdminSeeder`);
+- **runtime login and logout** (completed with Vaadin security and DashboardView logout button);
+- **role-aware navigation** (completed using `@RolesAllowed("SYSTEM_ADMIN")` on the new `UserAdministrationView`);
+- **account-state rejection** (completed inside `AppUserDetailsService` using `AccountStatus`);
+- **authentication tests** (completed via `AuthenticationTests.java` ensuring locked/disabled states are handled properly).
 
-1. Create the authentication tables:
-   - `roles`
-   - `app_users`
-   - `user_roles`
-2. Seed the fixed role definitions:
-   - `SYSTEM_ADMIN`
-   - `OPERATIONS_STAFF`
-3. Add Spring Security and Vaadin security integration.
-4. Implement BCrypt password encoding.
-5. Create a development-only administrator account without committing a
-   plaintext production password.
-6. Implement the Vaadin login view.
-7. Protect application navigation.
-8. Verify login, logout, disabled-account rejection, and role restrictions.
-9. Create the audit foundation.
-10. Implement the first complete Fleet workflow from Vaadin to PostgreSQL.
+Not yet implemented in the manual rebuild:
 
----
-
-# Implementation Plan Note
-
-> **Current implementation note — 2026-07-23:**  
-> This guide originally described the previous generated implementation.
-> The project is now being rebuilt manually in a new repository. Treat
-> unverified sections as reference material until they are reproduced,
-> tested, and recorded in the new repository.
+- Audit persistence and business-action recording;
+- Fleet Java persistence and application workflow;
+- Fleet Vaadin management interface;
+- Fleet tests.

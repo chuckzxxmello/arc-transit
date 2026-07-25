@@ -17,7 +17,7 @@ import com.vaadin.flow.server.auth.AnonymousAllowed;
  * standard POST /login authentication endpoint.
  */
 @Route(value = "login", autoLayout = false)
-@PageTitle("Login | Arc Transit System")
+@PageTitle("Login to Arc Transit System")
 @AnonymousAllowed
 public class LoginView extends VerticalLayout implements BeforeEnterObserver {
 

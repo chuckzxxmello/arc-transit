@@ -41,6 +41,17 @@ public class UserRole {
         // JPA
     }
 
+    public UserRole(Long userId, String roleCode, Long assignedByUserId) {
+        this.userId = userId;
+        this.roleCode = roleCode;
+        this.assignedByUserId = assignedByUserId;
+        this.assignedAt = Instant.now();
+    }
+
+    public Long getUserId() {
+        return userId;
+    }
+
     public String getRoleCode() {
         return roleCode;
     }
