@@ -1,42 +1,4 @@
----
-title: Arc Transit System Manual Rebuild Log
-project: Arc Transit System
-status_date: 2026-07-23
----
-
-# Arc Transit System — Manual Rebuild Implementation Log
-
-## Manual Rebuild Status — 2026-07-23
-
-A new Arc Transit System repository is being rebuilt manually. The previous
-generated implementation remains available only as a read-only architectural
-reference.
-
-The purpose of this rebuild is to reproduce the system through understandable,
-reviewable, and verified development steps. A feature is not treated as complete
-just because it existed in the previous generated codebase. It must be recreated,
-tested, and recorded in the new repository.
-
-## Documentation Rule
-
-Only behavior verified in the new repository may be marked **Completed**.
-
-Evidence may include:
-
-- a successful Maven build or test result;
-- a successful application startup;
-- a verified PostgreSQL connection;
-- a successfully applied Flyway migration;
-- a Spring Modulith verification result;
-- a browser-visible Vaadin route;
-- a reviewed Git commit containing the implementation.
-
-The previous generated repository must not be used as proof that a manual rebuild
-task is complete.
-
----
-
-# Verified Project Foundation
+# Arc Transit System - Implementation Log
 
 ## Runtime and Build Configuration
 
@@ -71,8 +33,6 @@ The project has successfully:
 - connected to PostgreSQL;
 - applied a Flyway migration;
 - verified the intended Spring Modulith package boundaries.
-
----
 
 # Detailed Implementation Log
 
@@ -526,11 +486,9 @@ git log --oneline -5
 Do not record a commit as completed until it exists locally and has been pushed
 successfully.
 
----
-
 # Current Verified Status
 
-## Week 5 — Application Foundation
+## Week 5
 
 The following Week 5 outputs are implemented and verified:
 
@@ -548,7 +506,7 @@ The following Week 5 outputs are implemented and verified:
 Week 5 may be marked **Completed** after the latest implementation commit is
 confirmed in Git and pushed.
 
-## Current Limitations
+**Current Limitations**
 
 The following items are not yet implemented in the manual rebuild:
 
@@ -571,9 +529,7 @@ The following items are not yet implemented in the manual rebuild:
 - manual PostgreSQL inspection of all newly created table columns and
   constraints, unless separately recorded.
 
----
-
-## Week 6 — Current Verified Position
+## Week 6
 
 Verified and **Completed**:
 
