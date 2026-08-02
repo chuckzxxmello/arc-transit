@@ -57,6 +57,9 @@ public class AppUserDetailsService implements UserDetailsService {
                 .map(ur -> new SimpleGrantedAuthority("ROLE_" + ur.getRoleCode()))
                 .toList();
 
+        System.out.println("USER LOGIN: " + appUser.getUsername());
+        System.out.println("AUTHORITIES GRANTED: " + authorities);
+
         return new User(
                 appUser.getUsername(),
                 appUser.getPasswordHash(),

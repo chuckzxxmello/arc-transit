@@ -34,4 +34,9 @@ public interface UserAdministrationService {
      * Replaces the roles assigned to a user.
      */
     UserView replaceRoles(@Valid ReplaceUserRolesCommand command);
+
+    /**
+     * Resets a user's password.
+     */
+    void resetPassword(String username, String newPassword);
 }

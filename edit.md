@@ -202,7 +202,99 @@ Verified and **Completed**:
 
 Not yet implemented in the manual rebuild:
 
-- Audit persistence and business-action recording;
-- Fleet Java persistence and application workflow;
-- Fleet Vaadin management interface;
-- Fleet tests.
+- Audit persistence and business-action recording.
+
+---
+
+## Saturday — August 2, 2026
+
+- Added the `spring-boot-starter-validation` dependency to pom.xml to enable Jakarta Bean Validation (`@NotBlank`, `@Size`, `@Valid`) on command records, ensuring that validation annotations on Java records are actually enforced at runtime instead of being silently ignored.
+  - `<groupId>org.springframework.boot</groupId>`
+  - `<artifactId>spring-boot-starter-validation</artifactId>`
+  - Source: https://docs.spring.io/spring-boot/reference/io/validation.html
+
+- Created the V3 Flyway migration (`V3__create_drivers.sql`) for the `arc.drivers` table, implementing detailed human-readable comments for every column and named database constraints (`ck_`, `ux_`, `pk_`) covering uppercase normalization, non-blank checks, license type validation, and employment status enums. Followed the exact commenting and constraint patterns established by V1 (fleet_units) and V2 (authentication).
+
+- Created the V4 Flyway migration (`V4__create_routes_and_stops.sql`) with two tables: `arc.routes` (parent) and `arc.route_stops` (child). The child table implements ordered stops using a `stop_sequence` column with unique constraints on `(route_id, stop_sequence)` and `(route_id, stop_name)` to prevent duplicate ordering and duplicate stop names per route. The foreign key uses `ON DELETE CASCADE` for parent-child cleanup.
+
+- Created the V5 Flyway migration (`V5__create_dispatch_assignments.sql`) for the `arc.dispatch_assignments` table. Implemented partial unique indexes (`ux_dispatch_fleet_unit_schedule`, `ux_dispatch_driver_schedule`) using PostgreSQL's `WHERE dispatch_status <> 'CANCELLED'` syntax to prevent double-booking a bus or driver at the same date and time while allowing cancelled assignments to be replaced.
+  - Source: https://www.postgresql.org/docs/17/indexes-partial.html
+
+- Implemented the complete Fleet module with full JPA persistence, following the same architectural patterns established by the Auth module:
+  - Domain layer: `FleetUnit.java` entity with `@Enumerated(EnumType.STRING)` for `VehicleType` and `OperationalStatus`, `@Version` for optimistic locking, soft-delete via `archivedAt`, and domain methods for status transitions (`activate()`, `deactivate()`, `markUnderMaintenance()`, `markOutOfService()`, `archive()`).
+  - Domain enums: `VehicleType.java` (BUS), `OperationalStatus.java` (ACTIVE, INACTIVE, UNDER_MAINTENANCE, OUT_OF_SERVICE).
+  - Repository: `FleetUnitRepository.java` extending `JpaRepository` with derived query methods (`findByUnitNumber`, `findByPlateNumber`, `findByArchivedAtIsNull`).
+  - Public API: `FleetUnitView`, `FleetUnitSummaryView`, `CreateFleetUnitCommand`, `UpdateFleetUnitCommand`, `FleetUnitQuery` (immutable Java 21 records).
+  - Service interface: `FleetManagementService.java` (Modulith public API boundary).
+  - Service implementation: `AppFleetManagementService.java` with input normalization (uppercase, trimmed), uniqueness validation, `@PreAuthorize` method-level security, and `@Transactional` management.
+  - Vaadin view: `FleetManagementView.java` at route `/fleet` with Grid, Dialog-based create/edit forms, status change ComboBox, and archive button.
+  - Source: https://jakarta.ee/specifications/persistence/3.2/jakarta-persistence-spec-3.2#a14935 (EnumType.STRING)
+  - Source: https://docs.spring.io/spring-data/jpa/reference/jpa/query-methods.html (JpaRepository)
+  - Source: https://vaadin.com/docs/latest/components/grid (Grid component)
+  - Source: https://vaadin.com/docs/latest/components/dialog (Dialog component)
+
+- Implemented the complete Driver module with full JPA persistence and license expiry checking:
+  - Domain layer: `Driver.java` entity with license expiry detection via `isLicenseExpired()` method comparing `licenseExpiryDate` against `LocalDate.now()`.
+  - Domain enums: `EmploymentStatus.java` (ACTIVE, INACTIVE, SUSPENDED, TERMINATED), `LicenseType.java` (PROFESSIONAL, NON_PROFESSIONAL).
+  - Repository: `DriverRepository.java` with derived query methods.
+  - Public API: `DriverView`, `DriverSummaryView` (includes `licenseExpired` boolean flag), `CreateDriverCommand`, `UpdateDriverCommand`, `DriverQuery`.
+  - Service: `AppDriverManagementService.java` with employee number and license number uniqueness validation.
+  - Vaadin view: `DriverManagementView.java` at route `/drivers` with a visual red "EXPIRED" badge for drivers with expired licenses, DatePicker for license expiry input.
+  - Source: https://vaadin.com/docs/latest/components/date-picker (DatePicker)
+
+- Implemented the complete Route module with parent-child JPA relationship for ordered stops:
+  - Domain layer: `Route.java` entity with `@OneToMany(cascade = ALL, orphanRemoval = true)` for `RouteStop` child entities, `@OrderBy("stopSequence ASC")` for correct loading order, and `replaceStops()` method for atomic stop replacement.
+  - Domain layer: `RouteStop.java` child entity with `stopSequence` ordering and `estimatedArrivalMinutes`.
+  - Repository: `RouteRepository.java`.
+  - Public API: `RouteView`, `RouteSummaryView`, `RouteStopView`, `CreateRouteCommand` (with nested `StopEntry` record), `UpdateRouteCommand`.
+  - Service: `AppRouteManagementService.java`.
+  - Vaadin view: `RouteManagementView.java` at route `/routes` with dynamic stop list management in the create/edit dialogs.
+  - Source: https://jakarta.ee/specifications/persistence/3.2/jakarta-persistence-spec-3.2#a1005 (orphanRemoval)
+
+- Implemented the complete Dispatch module with cross-module validation and lifecycle state machine:
+  - Updated `dispatch/package-info.java` with `allowedDependencies = {"fleet", "driver", "route", "common"}` to formally declare cross-module references following Spring Modulith best practices instead of using `Type.OPEN`.
+  - Domain layer: `DispatchAssignment.java` entity using FK-by-ID pattern (plain `Long` IDs instead of `@ManyToOne`) to respect module boundaries. State machine methods (`startTrip()`, `completeTrip()`, `cancel()`) with explicit transition validation.
+  - Domain enum: `DispatchStatus.java` (SCHEDULED, IN_PROGRESS, COMPLETED, CANCELLED) with documented valid transitions.
+  - Repository: `DispatchAssignmentRepository.java` with overlap-checking query methods.
+  - Public API: `DispatchAssignmentView` (includes resolved display names), `CreateDispatchCommand`, `DispatchQuery`.
+  - Service: `AppDispatchService.java` with 5-step validation: (1) fleet unit ACTIVE, (2) driver ACTIVE + license valid, (3) route ACTIVE, (4) no bus overlap, (5) no driver overlap. Uses public service interfaces for cross-module entity lookup.
+  - Vaadin view: `DispatchView.java` at route `/dispatch` with ComboBox dropdowns for active entities and context-aware action buttons.
+  - Source: https://docs.spring.io/spring-modulith/reference/fundamentals.html (allowedDependencies)
+  - Source: https://docs.spring.io/spring-security/reference/servlet/authorization/method-security.html (@PreAuthorize)
+  - Source: https://vaadin.com/docs/latest/components/combo-box (ComboBox)
+
+---
+
+## Week 7/8 — Current Verified Position
+
+Verified and **Completed** (Phases 1–5):
+
+- `spring-boot-starter-validation` dependency added;
+- V3 drivers migration with full constraints;
+- V4 routes and route_stops migration with parent-child relationship;
+- V5 dispatch_assignments migration with partial unique indexes;
+- Fleet module: entity, enums, repository, service, Vaadin CRUD view;
+- Driver module: entity, enums, repository, service, Vaadin CRUD view with license expiry indicator;
+- Route module: entity with @OneToMany ordered stops, repository, service, Vaadin CRUD view with dynamic stops;
+- Dispatch module: entity with FK-by-ID, state machine, cross-module validation, Vaadin dispatch view;
+- `dispatch/package-info.java` updated with `allowedDependencies`.
+
+Not yet implemented (Phase 6/7 — remaining manual tasks):
+
+- Unit tests for Fleet, Driver, Route, and Dispatch services;
+- Console debug output verification;
+- `mvnw clean test` BUILD SUCCESS confirmation;
+- Audit persistence and business-action recording.
+
+## Sunday — August 2, 2026 (UI & Security Fixes)
+
+- Removed the hardcoded admin credential insertion from `V2__create_users.sql`.
+- Created `AdminUserInitializer.java` utilizing Spring's `@Value` property injection (`arc.security.admin.username`) to dynamically create the `SYSTEM_ADMIN` user on first boot securely, supporting environment variable overrides for production.
+- Resolved Spring Modulith architectural boundary violations caused by cyclic dependencies. Moved `MainLayout.java` to `com.transit.arctransit.common.ui.MainLayout` and refactored Vaadin `SideNavItem` definitions to use raw string routes instead of class imports, completely severing the module cycle.
+- Fixed UI layout defects in `MainLayout`: centered the global search bar using `FlexComponent.JustifyContentMode.CENTER` and prevented the clock wrapping with `white-space: nowrap`.
+- Refactored `DashboardView.java` to replace static placeholders with live integration:
+  - Built real Vaadin `Grid` tables connected to `RouteManagementService` and `FleetManagementService`.
+  - Replaced the map placeholder with an OpenStreetMap `IFrame` focused on the Cavite region (`bbox=120.7,14.1,121.1,14.5`).
+  - Developed a Vaadin `SplitLayout` slide-out detail panel replacing the right sidebar, appearing only when a route or bus row is clicked.
+- Implemented `UserAdministrationView.java` restricted exclusively to `SYSTEM_ADMIN`. Included full CRUD with `CreateUserCommand` to allow administrators to dynamically create `OPERATIONS_STAFF` testing accounts securely leveraging `PasswordEncoder`.
+- Integrated `hardDeleteUnit`, `hardDeleteDriver`, and `hardDeleteRoute` methods into their respective modules, exposed via new "Permanently Delete" action buttons strictly in the `ArchiveView` interface for `SYSTEM_ADMIN` roles only. Backed by Vaadin `ConfirmDialog` prompts to prevent accidental deletions.

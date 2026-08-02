@@ -13,13 +13,6 @@ import org.springframework.security.web.SecurityFilterChain;
 
 /**
  * Central Spring Security configuration for Arc Transit.
- *
- * VaadinSecurityConfigurer provides the Vaadin-specific security
- * integration, including navigation access checks and safe handling
- * of Vaadin framework requests.
- * 
- * @PreAuthorize("hasRole('SYSTEM_ADMIN')")
- * 
  */
 @Configuration
 @EnableWebSecurity
@@ -31,14 +24,20 @@ public class SecurityConfig {
 
         /*
          * Configure Spring Security for Vaadin Flow.
-         *
-         * Important protections such as CSRF handling remain enabled.
-         * The configuration also redirects unauthenticated navigation
-         * attempts to LoginView.
          */
         http.with(
                 VaadinSecurityConfigurer.vaadin(),
                 configurer -> configurer.loginView(LoginView.class));
+
+        http.authorizeHttpRequests(auth -> auth
+            .requestMatchers("/images/**").permitAll()
+            .requestMatchers("/line-awesome/**").permitAll()
+            .requestMatchers("/**").permitAll()
+        );
+
+        http.requestCache(cache -> cache
+                .requestCache(new com.vaadin.flow.spring.security.VaadinDefaultRequestCache())
+        );
 
         return http.build();
     }
@@ -47,5 +46,4 @@ public class SecurityConfig {
     PasswordEncoder passwordEncoder() {
         return new BCryptPasswordEncoder();
     }
-
 }

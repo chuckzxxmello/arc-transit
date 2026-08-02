@@ -141,6 +141,19 @@
 			<artifactId>spring-boot-starter-security</artifactId>
 		</dependency>
 
+		<!--
+			Jakarta Bean Validation support (@NotBlank, @Size, @Valid).
+			Without this starter, validation annotations on command records
+			are silently ignored at runtime.
+
+			Source: https://docs.spring.io/spring-boot/reference/io/validation.html
+			(Ctrl+F: spring-boot-starter-validation)
+		-->
+		<dependency>
+			<groupId>org.springframework.boot</groupId>
+			<artifactId>spring-boot-starter-validation</artifactId>
+		</dependency>
+
 
 	</dependencies>
 

@@ -86,6 +86,11 @@ public class AppUser {
         this.updatedAt = Instant.now();
     }
 
+    public void changePassword(String newPasswordHash) {
+        this.passwordHash = newPasswordHash;
+        this.updatedAt = Instant.now();
+    }
+
     public Long getId() {
         return id;
     }

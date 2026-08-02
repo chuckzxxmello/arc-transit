@@ -57,12 +57,13 @@ public class AppUserAdministrationService implements UserAdministrationService {
     @Override
     @PreAuthorize("hasRole('SYSTEM_ADMIN')")
     public UserView createUser(CreateUserCommand command) {
-        if (userRepository.findByUsername(command.username()).isPresent()) {
+        String normalizedUsername = command.username().toLowerCase(java.util.Locale.ROOT);
+        if (userRepository.findByUsername(normalizedUsername).isPresent()) {
             throw new BusinessConflictException("Username is already taken.");
         }
 
         AppUser newUser = new AppUser(
-                command.username(),
+                normalizedUsername,
                 passwordEncoder.encode(command.password()),
                 command.displayName(),
                 command.email()
@@ -109,6 +110,14 @@ public class AppUserAdministrationService implements UserAdministrationService {
         }
 
         return toUserView(user);
+    }
+
+    @Override
+    @PreAuthorize("hasRole('SYSTEM_ADMIN')")
+    public void resetPassword(String username, String newPassword) {
+        AppUser user = userRepository.findByUsername(username)
+                .orElseThrow(() -> new ResourceNotFoundException("User not found: " + username));
+        user.changePassword(passwordEncoder.encode(newPassword));
     }
 
     private UserView toUserView(AppUser user) {

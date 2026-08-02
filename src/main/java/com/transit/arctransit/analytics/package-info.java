@@ -5,5 +5,8 @@ Arc Transit Analytics module.
  dashboard metrics, and the main dashboard interface.
  */
 
-@org.springframework.modulith.ApplicationModule(displayName = "Analytics")
+@org.springframework.modulith.ApplicationModule(
+        displayName = "Analytics",
+        allowedDependencies = {"auth", "fleet", "driver", "route", "dispatch", "common"}
+)
 package com.transit.arctransit.analytics;
