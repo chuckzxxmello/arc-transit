@@ -74,6 +74,9 @@ public class DispatchAssignment {
     @Column(name = "updated_at", nullable = false)
     private Instant updatedAt;
 
+    @Column(name = "archived_at")
+    private Instant archivedAt;
+
     @Version
     private Long version;
 
@@ -141,6 +144,18 @@ public class DispatchAssignment {
         this.updatedAt = Instant.now();
     }
 
+    /** Soft-deletes this assignment by setting the archive timestamp. */
+    public void archive() {
+        this.archivedAt = Instant.now();
+        this.updatedAt = Instant.now();
+    }
+
+    /** Restores this assignment from the archive. */
+    public void unarchive() {
+        this.archivedAt = null;
+        this.updatedAt = Instant.now();
+    }
+
     // --- Getters ---
 
     public Long getId() { return id; }
@@ -156,4 +171,5 @@ public class DispatchAssignment {
     public String getNotes() { return notes; }
     public Instant getCreatedAt() { return createdAt; }
     public Instant getUpdatedAt() { return updatedAt; }
+    public Instant getArchivedAt() { return archivedAt; }
 }

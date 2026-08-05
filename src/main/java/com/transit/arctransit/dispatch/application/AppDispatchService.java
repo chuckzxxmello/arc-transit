@@ -1,5 +1,6 @@
 package com.transit.arctransit.dispatch.application;
 
+import com.transit.arctransit.audit.AuditRecordingService;
 import com.transit.arctransit.common.exception.BusinessConflictException;
 import com.transit.arctransit.common.exception.CommandValidationException;
 import com.transit.arctransit.common.exception.ResourceNotFoundException;
@@ -52,6 +53,7 @@ public class AppDispatchService implements DispatchService {
     private final FleetManagementService fleetService;
     private final DriverManagementService driverService;
     private final RouteManagementService routeService;
+    private final AuditRecordingService auditService;
 
     /**
      * Constructor injection of cross-module service interfaces.
@@ -60,13 +62,15 @@ public class AppDispatchService implements DispatchService {
      * declares allowedDependencies = {"fleet", "driver", "route", "common"}.
      */
     public AppDispatchService(DispatchAssignmentRepository assignmentRepository,
-            FleetManagementService fleetService,
-            DriverManagementService driverService,
-            RouteManagementService routeService) {
+                              FleetManagementService fleetService,
+                              DriverManagementService driverService,
+                              RouteManagementService routeService,
+                              AuditRecordingService auditService) {
         this.assignmentRepository = assignmentRepository;
         this.fleetService = fleetService;
         this.driverService = driverService;
         this.routeService = routeService;
+        this.auditService = auditService;
     }
 
     @Override
@@ -143,9 +147,10 @@ public class AppDispatchService implements DispatchService {
                 command.scheduledArrival(),
                 command.notes());
 
-        assignmentRepository.saveAndFlush(assignment);
-        return toView(assignment, fleetUnit.unitNumber(),
-                driver.firstName() + " " + driver.lastName(), route.routeCode());
+        DispatchAssignment saved = assignmentRepository.save(assignment);
+        auditService.recordAction("DISPATCH_ASSIGNED", "DispatchAssignment", saved.getId(), 
+                String.format("Assigned Bus %d to Driver %d on Route %d", command.fleetUnitId(), command.driverId(), command.routeId()));
+        return resolveView(saved);
     }
 
     @Override
@@ -153,6 +158,7 @@ public class AppDispatchService implements DispatchService {
     public DispatchAssignmentView startTrip(Long assignmentId) {
         DispatchAssignment assignment = findAssignment(assignmentId);
         assignment.startTrip();
+        auditService.recordAction("DISPATCH_STARTED", "DispatchAssignment", assignment.getId(), "Started trip");
         return resolveView(assignment);
     }
 
@@ -161,6 +167,7 @@ public class AppDispatchService implements DispatchService {
     public DispatchAssignmentView completeTrip(Long assignmentId) {
         DispatchAssignment assignment = findAssignment(assignmentId);
         assignment.completeTrip();
+        auditService.recordAction("DISPATCH_COMPLETED", "DispatchAssignment", assignment.getId(), "Completed trip");
         return resolveView(assignment);
     }
 
@@ -169,6 +176,7 @@ public class AppDispatchService implements DispatchService {
     public DispatchAssignmentView cancelAssignment(Long assignmentId) {
         DispatchAssignment assignment = findAssignment(assignmentId);
         assignment.cancel();
+        auditService.recordAction("DISPATCH_CANCELLED", "DispatchAssignment", assignment.getId(), "Cancelled trip");
         return resolveView(assignment);
     }
 
@@ -176,7 +184,42 @@ public class AppDispatchService implements DispatchService {
     @Transactional(readOnly = true)
     @PreAuthorize("hasRole('SYSTEM_ADMIN') or hasRole('OPERATIONS_STAFF')")
     public Page<DispatchAssignmentView> searchAssignments(DispatchQuery query, Pageable pageable) {
-        return assignmentRepository.findAll(pageable)
+        return assignmentRepository.findByArchivedAtIsNull(pageable)
+                .map(this::resolveView);
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    @PreAuthorize("hasRole('SYSTEM_ADMIN') or hasRole('OPERATIONS_STAFF')")
+    public long countCompletedTrips() {
+        return assignmentRepository.countByDispatchStatusAndArchivedAtIsNull(DispatchStatus.COMPLETED);
+    }
+
+    @Override
+    @PreAuthorize("hasRole('SYSTEM_ADMIN')")
+    public void archiveAssignment(Long id) {
+        DispatchAssignment assignment = findAssignment(id);
+        if (assignment.getDispatchStatus() == DispatchStatus.SCHEDULED || 
+            assignment.getDispatchStatus() == DispatchStatus.IN_PROGRESS) {
+            throw new CommandValidationException("Cannot archive an active assignment.");
+        }
+        assignment.archive();
+        auditService.recordAction("DISPATCH_ARCHIVED", "DispatchAssignment", assignment.getId(), "Archived dispatch assignment");
+    }
+
+    @Override
+    @PreAuthorize("hasRole('SYSTEM_ADMIN')")
+    public void unarchiveAssignment(Long id) {
+        DispatchAssignment assignment = findAssignment(id);
+        assignment.unarchive();
+        auditService.recordAction("DISPATCH_UNARCHIVED", "DispatchAssignment", assignment.getId(), "Unarchived dispatch assignment");
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    @PreAuthorize("hasRole('SYSTEM_ADMIN') or hasRole('OPERATIONS_STAFF')")
+    public Page<DispatchAssignmentView> searchArchivedAssignments(Pageable pageable) {
+        return assignmentRepository.findByArchivedAtIsNotNull(pageable)
                 .map(this::resolveView);
     }
 

@@ -1,6 +1,7 @@
 package com.transit.arctransit.analytics.ui;
 
 import com.transit.arctransit.analytics.application.IncidentService;
+import com.transit.arctransit.dispatch.DispatchService;
 import com.transit.arctransit.fleet.FleetManagementService;
 import com.transit.arctransit.fleet.FleetUnitSummaryView;
 import com.transit.arctransit.route.RouteManagementService;
@@ -39,15 +40,17 @@ public class DashboardView extends VerticalLayout {
     private final FleetManagementService fleetService;
     private final RouteManagementService routeService;
     private final IncidentService incidentService;
+    private final DispatchService dispatchService;
 
     private final VerticalLayout sidePanel = new VerticalLayout();
     private final Div sidePanelContent = new Div();
     private final SplitLayout splitLayout = new SplitLayout();
 
-    public DashboardView(FleetManagementService fleetService, RouteManagementService routeService, IncidentService incidentService) {
+    public DashboardView(FleetManagementService fleetService, RouteManagementService routeService, IncidentService incidentService, DispatchService dispatchService) {
         this.fleetService = fleetService;
         this.routeService = routeService;
         this.incidentService = incidentService;
+        this.dispatchService = dispatchService;
 
         setSizeFull();
         setPadding(false);
@@ -56,16 +59,23 @@ public class DashboardView extends VerticalLayout {
         HorizontalLayout cards = new HorizontalLayout();
         cards.setWidthFull();
         
+        Div busesCard = createCard("Active Buses", String.valueOf(fleetService.searchUnits(null, PageRequest.of(0, 1)).getTotalElements()));
+        busesCard.getStyle().set("cursor", "pointer");
+        busesCard.addClickListener(e -> UI.getCurrent().navigate("fleet"));
+
+        Div routesCard = createCard("Active Routes", String.valueOf(routeService.searchRoutes(null, PageRequest.of(0, 1)).getTotalElements()));
+        routesCard.getStyle().set("cursor", "pointer");
+        routesCard.addClickListener(e -> UI.getCurrent().navigate("routes"));
+
+        Div tripsCard = createCard("Completed Trips", String.valueOf(dispatchService.countCompletedTrips()));
+        tripsCard.getStyle().set("cursor", "pointer");
+        tripsCard.addClickListener(e -> UI.getCurrent().navigate("dispatch"));
+
         Div incidentsCard = createCard("Incidents", String.valueOf(incidentService.getRecentIncidents().size()));
         incidentsCard.getStyle().set("cursor", "pointer");
         incidentsCard.addClickListener(e -> UI.getCurrent().navigate("incidents"));
-        
-        cards.add(
-                createCard("Active Buses", String.valueOf(fleetService.searchUnits(null, PageRequest.of(0, 1)).getTotalElements())),
-                createCard("Active Routes", String.valueOf(routeService.searchRoutes(null, PageRequest.of(0, 1)).getTotalElements())),
-                createCard("Completed Trips", "263"),
-                incidentsCard
-        );
+
+        cards.add(busesCard, routesCard, tripsCard, incidentsCard);
 
         // Middle Section: Map IFrame + Right Sidebar
         SplitLayout middleSplit = new SplitLayout();

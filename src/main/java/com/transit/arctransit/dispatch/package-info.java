@@ -16,6 +16,6 @@ Source: https://docs.spring.io/spring-modulith/reference/fundamentals.html
 
 @org.springframework.modulith.ApplicationModule(
         displayName = "Dispatch",
-        allowedDependencies = {"fleet", "driver", "route", "common"}
+        allowedDependencies = {"fleet", "driver", "route", "common", "audit"}
 )
 package com.transit.arctransit.dispatch;

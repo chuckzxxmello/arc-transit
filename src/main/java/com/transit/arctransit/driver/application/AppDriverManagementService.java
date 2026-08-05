@@ -1,5 +1,6 @@
 package com.transit.arctransit.driver.application;
 
+import com.transit.arctransit.audit.AuditRecordingService;
 import com.transit.arctransit.common.exception.BusinessConflictException;
 import com.transit.arctransit.common.exception.CommandValidationException;
 import com.transit.arctransit.common.exception.ResourceNotFoundException;
@@ -33,9 +34,11 @@ import org.springframework.transaction.annotation.Transactional;
 public class AppDriverManagementService implements DriverManagementService {
 
     private final DriverRepository driverRepository;
+    private final AuditRecordingService auditService;
 
-    public AppDriverManagementService(DriverRepository driverRepository) {
+    public AppDriverManagementService(DriverRepository driverRepository, AuditRecordingService auditService) {
         this.driverRepository = driverRepository;
+        this.auditService = auditService;
     }
 
     @Override
@@ -67,8 +70,9 @@ public class AppDriverManagementService implements DriverManagementService {
                 command.contactNumber() != null ? command.contactNumber().trim() : null
         );
 
-        driverRepository.saveAndFlush(driver);
-        return toView(driver);
+        Driver saved = driverRepository.save(driver);
+        auditService.recordAction("DRIVER_REGISTERED", "Driver", saved.getId(), "Registered driver " + saved.getFullName());
+        return toView(saved);
     }
 
     @Override
@@ -108,6 +112,7 @@ public class AppDriverManagementService implements DriverManagementService {
                 command.contactNumber() != null ? command.contactNumber().trim() : null
         );
 
+        auditService.recordAction("DRIVER_UPDATED", "Driver", driver.getId(), "Updated details for driver " + driver.getFullName());
         return toView(driver);
     }
 
@@ -124,6 +129,7 @@ public class AppDriverManagementService implements DriverManagementService {
             throw new CommandValidationException("Invalid employment status: " + newStatus);
         }
 
+        auditService.recordAction("DRIVER_STATUS_CHANGED", "Driver", driver.getId(), "Status changed to " + newStatus + " for driver " + driver.getFullName());
         return toView(driver);
     }
 
@@ -133,6 +139,7 @@ public class AppDriverManagementService implements DriverManagementService {
         Driver driver = driverRepository.findById(id)
                 .orElseThrow(() -> new ResourceNotFoundException("Driver not found: " + id));
         driver.archive();
+        auditService.recordAction("DRIVER_ARCHIVED", "Driver", id, "Archived driver " + driver.getFullName());
     }
 
     @Override
@@ -141,6 +148,7 @@ public class AppDriverManagementService implements DriverManagementService {
         Driver driver = driverRepository.findById(id)
                 .orElseThrow(() -> new ResourceNotFoundException("Driver not found: " + id));
         driver.unarchive();
+        auditService.recordAction("DRIVER_UNARCHIVED", "Driver", id, "Unarchived driver " + driver.getFullName());
     }
 
     @Override

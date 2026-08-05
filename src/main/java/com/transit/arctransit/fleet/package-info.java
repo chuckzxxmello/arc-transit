@@ -5,5 +5,8 @@ fleet module.
  operational status information.
  */
 
-@org.springframework.modulith.ApplicationModule(displayName = "Fleet")
+@org.springframework.modulith.ApplicationModule(
+        displayName = "Fleet Management",
+        allowedDependencies = {"common", "audit"}
+)
 package com.transit.arctransit.fleet;

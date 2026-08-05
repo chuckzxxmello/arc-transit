@@ -42,14 +42,14 @@ public class AdminUserInitializer implements CommandLineRunner {
             AppUser admin = new AppUser(adminUsername, passwordEncoder.encode(adminPassword), "Default Admin", null);
             admin = userRepository.save(admin);
             
-            jdbcTemplate.update("INSERT INTO arc.user_roles (user_id, role_code) VALUES (?, ?)", admin.getId(), "SYSTEM_ADMIN");
+            jdbcTemplate.update("INSERT INTO arc.user_roles (user_id, role_code, assigned_at) VALUES (?, ?, CURRENT_TIMESTAMP)", admin.getId(), "SYSTEM_ADMIN");
 
             System.out.println("Default System Administrator initialized via JdbcTemplate.");
         } else {
             // Check if admin user exists but is missing the role (due to old database state)
             userRepository.findByUsername(adminUsername).ifPresent(admin -> {
                 if (admin.getUserRoles().isEmpty()) {
-                    jdbcTemplate.update("INSERT INTO arc.user_roles (user_id, role_code) VALUES (?, ?)", admin.getId(), "SYSTEM_ADMIN");
+                    jdbcTemplate.update("INSERT INTO arc.user_roles (user_id, role_code, assigned_at) VALUES (?, ?, CURRENT_TIMESTAMP)", admin.getId(), "SYSTEM_ADMIN");
                     System.out.println("Added SYSTEM_ADMIN role to existing " + adminUsername + " user via JdbcTemplate.");
                 }
             });

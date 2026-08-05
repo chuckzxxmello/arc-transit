@@ -265,27 +265,6 @@ Not yet implemented in the manual rebuild:
 
 ---
 
-## Week 7/8 — Current Verified Position
-
-Verified and **Completed** (Phases 1–5):
-
-- `spring-boot-starter-validation` dependency added;
-- V3 drivers migration with full constraints;
-- V4 routes and route_stops migration with parent-child relationship;
-- V5 dispatch_assignments migration with partial unique indexes;
-- Fleet module: entity, enums, repository, service, Vaadin CRUD view;
-- Driver module: entity, enums, repository, service, Vaadin CRUD view with license expiry indicator;
-- Route module: entity with @OneToMany ordered stops, repository, service, Vaadin CRUD view with dynamic stops;
-- Dispatch module: entity with FK-by-ID, state machine, cross-module validation, Vaadin dispatch view;
-- `dispatch/package-info.java` updated with `allowedDependencies`.
-
-Not yet implemented (Phase 6/7 — remaining manual tasks):
-
-- Unit tests for Fleet, Driver, Route, and Dispatch services;
-- Console debug output verification;
-- `mvnw clean test` BUILD SUCCESS confirmation;
-- Audit persistence and business-action recording.
-
 ## Sunday — August 2, 2026 (UI & Security Fixes)
 
 - Removed the hardcoded admin credential insertion from `V2__create_users.sql`.
@@ -298,3 +277,30 @@ Not yet implemented (Phase 6/7 — remaining manual tasks):
   - Developed a Vaadin `SplitLayout` slide-out detail panel replacing the right sidebar, appearing only when a route or bus row is clicked.
 - Implemented `UserAdministrationView.java` restricted exclusively to `SYSTEM_ADMIN`. Included full CRUD with `CreateUserCommand` to allow administrators to dynamically create `OPERATIONS_STAFF` testing accounts securely leveraging `PasswordEncoder`.
 - Integrated `hardDeleteUnit`, `hardDeleteDriver`, and `hardDeleteRoute` methods into their respective modules, exposed via new "Permanently Delete" action buttons strictly in the `ArchiveView` interface for `SYSTEM_ADMIN` roles only. Backed by Vaadin `ConfirmDialog` prompts to prevent accidental deletions.
+
+---
+
+## Monday — August 3, 2026 (Week 7 & 8 Deliverables)
+
+- Implemented the complete cross-module Audit Logging System to act as an append-only ledger for business actions:
+  - Created the V8 Flyway migration (`V8__create_audit_logs.sql`) for the `arc.audit_logs` table. Intentionally defined `entity_id` as a plain `BIGINT` (no foreign key) to prevent constraint violations when audited entities are later hard-deleted. Added performance indexes `idx_audit_logs_entity` and `idx_audit_logs_timestamp`.
+  - Domain layer: `AuditLog.java` entity representing a single action (e.g., "FLEET_UNIT_REGISTERED").
+  - Repository: `AuditLogRepository.java`.
+  - Service interface: `AuditRecordingService.java` acting as the public API boundary for the `audit` module.
+  - Service implementation: `AppAuditRecordingService.java` utilizing `SecurityContextHolder.getContext().getAuthentication()` to automatically attribute actions to the active authenticated user, or falling back to "SYSTEM" for background tasks.
+  - Integration: Constructor-injected `AuditRecordingService` into all primary module services (`AppRouteManagementService`, `AppFleetManagementService`, `AppDriverManagementService`, `AppDispatchService`) to record actions at the service boundary.
+
+- Finalized the Dispatch and Incident schema and persistence layers:
+  - Created the V7 Flyway migration (`V7__add_dispatch_archive.sql`) to append an `archived_at` TIMESTAMPTZ column to `arc.dispatch_assignments`, enabling soft-deletion of completed or cancelled trips so active views aren't cluttered.
+  - Corrected previous Flyway migration sequence collisions by formally standardizing the ordering: V6 (`incidents`), V7 (`dispatch_assignments` alter), and V8 (`audit_logs`).
+  - Resolved subtle transaction timing issues across integration tests by explicitly distinguishing `save()` vs `saveAndFlush()` within `AppUserAdministrationService`, ensuring immediate database synchronization before assertions.
+
+- Dashboard & System Verification:
+  - Integrated the dashboard summary cards in `DashboardView` with real data, directly querying module services for active fleet units, active routes, recent incidents, and total completed dispatch trips. Made the dashboard cards clickable to route to their respective views.
+  - Developed the `StartupDiagnosticRunner` (an `ApplicationRunner` in the `analytics` module) to provide runtime proof of module interactions during application boot by counting domain entities across modules and logging them.
+
+- Testing, Security, and Environment Hardening:
+  - Created comprehensive JUnit 5 and Mockito unit tests for `AppFleetManagementService`, `AppDriverManagementService`, `AppRouteManagementService`, and `AppDispatchService`, verifying all cross-module validations, unique constraints, and state transitions.
+  - Engineered `AuthDebugIT.java`, an `@SpringBootTest` integration test directly exercising `AppUserDetailsService.loadUserByUsername()`. Verified that the database role mappings successfully translate into Spring Security `GrantedAuthority` objects (e.g., `ROLE_SYSTEM_ADMIN`).
+  - Adjusted PostgreSQL connection credentials specifically tailored for the integration test environment context to ensure robust automated CI/CD pipeline execution.
+  - Ran `mvnw clean test` confirming that all unit tests and context loads succeed under Java 21, achieving BUILD SUCCESS and closing out the remaining Week 8 structural deliverables.

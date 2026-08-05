@@ -1,5 +1,6 @@
 package com.transit.arctransit.fleet.application;
 
+import com.transit.arctransit.audit.AuditRecordingService;
 import com.transit.arctransit.common.exception.BusinessConflictException;
 import com.transit.arctransit.common.exception.CommandValidationException;
 import com.transit.arctransit.common.exception.ResourceNotFoundException;
@@ -34,6 +35,7 @@ import org.springframework.transaction.annotation.Transactional;
 public class AppFleetManagementService implements FleetManagementService {
 
     private final FleetUnitRepository fleetUnitRepository;
+    private final AuditRecordingService auditService;
 
     /**
      * Implicit constructor injection (no @Autowired needed).
@@ -42,8 +44,9 @@ public class AppFleetManagementService implements FleetManagementService {
      * Source: https://docs.spring.io/spring-framework/reference/core/beans/annotation-config/autowired.html
      * (Ctrl+F: "single constructor")
      */
-    public AppFleetManagementService(FleetUnitRepository fleetUnitRepository) {
+    public AppFleetManagementService(FleetUnitRepository fleetUnitRepository, AuditRecordingService auditService) {
         this.fleetUnitRepository = fleetUnitRepository;
+        this.auditService = auditService;
     }
 
     @Override
@@ -72,8 +75,9 @@ public class AppFleetManagementService implements FleetManagementService {
                 command.capacity()
         );
 
-        fleetUnitRepository.saveAndFlush(unit);
-        return toView(unit);
+        FleetUnit saved = fleetUnitRepository.save(unit);
+        auditService.recordAction("FLEET_UNIT_REGISTERED", "FleetUnit", saved.getId(), "Registered unit " + saved.getUnitNumber());
+        return toView(saved);
     }
 
     @Override
@@ -103,6 +107,7 @@ public class AppFleetManagementService implements FleetManagementService {
                 });
 
         unit.updateDetails(normalizedUnitNumber, normalizedPlateNumber, command.capacity());
+        auditService.recordAction("FLEET_UNIT_UPDATED", "FleetUnit", unit.getId(), "Updated details for unit " + unit.getUnitNumber());
         return toView(unit);
     }
 
@@ -119,6 +124,7 @@ public class AppFleetManagementService implements FleetManagementService {
             throw new CommandValidationException("Invalid operational status: " + newStatus);
         }
 
+        auditService.recordAction("FLEET_UNIT_STATUS_CHANGED", "FleetUnit", unit.getId(), "Status changed to " + newStatus + " for unit " + unit.getUnitNumber());
         return toView(unit);
     }
 
@@ -128,6 +134,7 @@ public class AppFleetManagementService implements FleetManagementService {
         FleetUnit unit = fleetUnitRepository.findById(id)
                 .orElseThrow(() -> new ResourceNotFoundException("Fleet unit not found: " + id));
         unit.archive();
+        auditService.recordAction("FLEET_UNIT_ARCHIVED", "FleetUnit", id, "Archived unit " + unit.getUnitNumber());
     }
 
     @Override
@@ -136,6 +143,7 @@ public class AppFleetManagementService implements FleetManagementService {
         FleetUnit unit = fleetUnitRepository.findById(id)
                 .orElseThrow(() -> new ResourceNotFoundException("Fleet unit not found: " + id));
         unit.unarchive();
+        auditService.recordAction("FLEET_UNIT_UNARCHIVED", "FleetUnit", id, "Unarchived unit " + unit.getUnitNumber());
     }
 
     @Override

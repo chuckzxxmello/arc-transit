@@ -35,8 +35,9 @@ import java.time.ZoneId;
 import java.time.ZonedDateTime;
 import java.util.List;
 
-import com.transit.arctransit.common.ui.MainLayout;
 import java.time.format.DateTimeFormatter;
+import org.springframework.security.core.context.SecurityContextHolder;
+import com.transit.arctransit.common.ui.MainLayout;
 
 /**
  * Dispatch Management CRUD view accessible to all authenticated staff.
@@ -205,6 +206,26 @@ public class DispatchView extends VerticalLayout {
                 });
                 cancelBtn.addThemeVariants(ButtonVariant.LUMO_ERROR);
                 actions.add(cancelBtn);
+            }
+
+            if ("COMPLETED".equals(assignment.dispatchStatus()) || "CANCELLED".equals(assignment.dispatchStatus())) {
+                boolean isAdmin = SecurityContextHolder.getContext().getAuthentication().getAuthorities().stream()
+                        .anyMatch(a -> a.getAuthority().equals("ROLE_SYSTEM_ADMIN"));
+                if (isAdmin) {
+                    Button archiveBtn = new Button("Archive", click -> {
+                        try {
+                            dispatchService.archiveAssignment(assignment.id());
+                            Notification.show("Assignment archived", 3000, Notification.Position.TOP_CENTER)
+                                    .addThemeVariants(NotificationVariant.LUMO_SUCCESS);
+                            refreshGrid();
+                        } catch (Exception e) {
+                            Notification.show("Error: " + e.getMessage(), 5000, Notification.Position.TOP_CENTER)
+                                    .addThemeVariants(NotificationVariant.LUMO_ERROR);
+                        }
+                    });
+                    archiveBtn.addThemeVariants(ButtonVariant.LUMO_TERTIARY);
+                    actions.add(archiveBtn);
+                }
             }
 
             return actions;

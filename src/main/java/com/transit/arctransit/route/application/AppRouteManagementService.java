@@ -1,5 +1,6 @@
 package com.transit.arctransit.route.application;
 
+import com.transit.arctransit.audit.AuditRecordingService;
 import com.transit.arctransit.common.exception.BusinessConflictException;
 import com.transit.arctransit.common.exception.CommandValidationException;
 import com.transit.arctransit.common.exception.ResourceNotFoundException;
@@ -31,9 +32,11 @@ import java.util.List;
 public class AppRouteManagementService implements RouteManagementService {
 
     private final RouteRepository routeRepository;
+    private final AuditRecordingService auditService;
 
-    public AppRouteManagementService(RouteRepository routeRepository) {
+    public AppRouteManagementService(RouteRepository routeRepository, AuditRecordingService auditService) {
         this.routeRepository = routeRepository;
+        this.auditService = auditService;
     }
 
     @Override
@@ -62,8 +65,9 @@ public class AppRouteManagementService implements RouteManagementService {
             }
         }
 
-        routeRepository.saveAndFlush(route);
-        return toView(route);
+        Route saved = routeRepository.save(route);
+        auditService.recordAction("ROUTE_CREATED", "Route", saved.getId(), "Created route " + saved.getRouteCode());
+        return toView(saved);
     }
 
     @Override
@@ -98,6 +102,7 @@ public class AppRouteManagementService implements RouteManagementService {
             route.replaceStops(newStops);
         }
 
+        auditService.recordAction("ROUTE_UPDATED", "Route", route.getId(), "Updated details for route " + route.getRouteCode());
         return toView(route);
     }
 
@@ -114,6 +119,7 @@ public class AppRouteManagementService implements RouteManagementService {
             throw new CommandValidationException("Invalid route status: " + newStatus);
         }
 
+        auditService.recordAction("ROUTE_STATUS_CHANGED", "Route", route.getId(), "Status changed to " + newStatus + " for route " + route.getRouteCode());
         return toView(route);
     }
 
@@ -123,6 +129,7 @@ public class AppRouteManagementService implements RouteManagementService {
         Route route = routeRepository.findById(id)
                 .orElseThrow(() -> new ResourceNotFoundException("Route not found: " + id));
         route.archive();
+        auditService.recordAction("ROUTE_ARCHIVED", "Route", id, "Archived route " + route.getRouteCode());
     }
 
     @Override
@@ -131,6 +138,7 @@ public class AppRouteManagementService implements RouteManagementService {
         Route route = routeRepository.findById(id)
                 .orElseThrow(() -> new ResourceNotFoundException("Route not found: " + id));
         route.unarchive();
+        auditService.recordAction("ROUTE_UNARCHIVED", "Route", id, "Unarchived route " + route.getRouteCode());
     }
 
     @Override

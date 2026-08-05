@@ -29,4 +29,16 @@ public interface DispatchService {
 
     /** Searches dispatch assignments. */
     Page<DispatchAssignmentView> searchAssignments(DispatchQuery query, Pageable pageable);
+
+    /** Returns count of completed trips for dashboard display. */
+    long countCompletedTrips();
+
+    /** Archives a completed or cancelled assignment. */
+    void archiveAssignment(Long id);
+
+    /** Unarchives an assignment. */
+    void unarchiveAssignment(Long id);
+
+    /** Searches archived dispatch assignments. */
+    Page<DispatchAssignmentView> searchArchivedAssignments(Pageable pageable);
 }
