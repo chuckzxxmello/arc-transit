@@ -373,6 +373,13 @@ Not yet implemented in the manual rebuild:
   - Resolved `RolesAllowed` imports and property accessors (`fleetUnitNumber()`, `dispatchStatus()`) in `ArchiveView.java` and `RouteManagementView.java`.
   - Executed `mvnw test-compile` with JDK 21 `JAVA_HOME`, achieving **BUILD SUCCESS** across all 97 main source files and 8 test files with zero errors under release target 21.
 
+- **Project Documentation & References Update:**
+  - Updated [README.md](file:///c:/projects/arc-transit/README.md) with a new section: **"Detailed Logging of Documentation References and File Paths"**.
+  - Categorized and detailed all Flyway SQL migration scripts (`V1`–`V8`), core Java security/auth components, application config files, and official online technical documentation references (OWASP Top 10, Spring Security, Vaadin 25, Spring Modulith).
+  - Updated [Agile_Kanban_Progress_Tracker.docx](file:///c:/projects/arc-transit/Agile_Kanban_Progress_Tracker.docx) with comprehensive task tables, detailed implementation logs, and context-tailored online technical documentation references across Weeks 5, 6, 7, and 8.
+
+
+
 
 
 
