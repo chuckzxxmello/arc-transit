@@ -21,6 +21,7 @@
 	<url>https://github.com/chuckzxxmello/arc-transit</url>
 
 	<!-- TODO
+
 	<licenses>
 		<license/>
 	</licenses>
@@ -35,12 +36,13 @@
 		<tag/>
 		<url/>
 	</scm>
+
 	-->
 
 	<!-- currently used versions-->
 	<properties>
-		<java.version>21</java.version> <!-- uses java version 21 -->
-		<vaadin.version>25.2.3</vaadin.version> <!-- vaadin version set to 25.2.3 -->
+		<java.version>21</java.version> <!-- java version 21 -->
+		<vaadin.version>25.2.3</vaadin.version> <!-- vaadin version 25.2.3 -->
 		<spring-modulith.version>2.1.0</spring-modulith.version>
 	</properties>
 
@@ -121,34 +123,26 @@
 			<artifactId>flyway-database-postgresql</artifactId>
 		</dependency>
 		
+		<!-- Source: https://mvnrepository.com/artifact/org.springframework.modulith/spring-modulith-starter-core -->
 		<dependency>
 			<groupId>org.springframework.modulith</groupId>
 			<artifactId>spring-modulith-starter-core</artifactId>
 		</dependency>
 		
+		<!-- Source: https://mvnrepository.com/artifact/org.springframework.boot/spring-boot-starter-test -->
 		<dependency>
 			<groupId>org.springframework.modulith</groupId>
 			<artifactId>spring-modulith-starter-test</artifactId>
 			<scope>test</scope>
 		</dependency>
 
-		<!--
-			Provides Spring Security authentication, session management,
-			password handling, CSRF protection, and authorization support.
-		-->
+		<!-- Source: https://mvnrepository.com/artifact/org.springframework.boot/spring-boot-starter-security -->
 		<dependency>
 			<groupId>org.springframework.boot</groupId>
 			<artifactId>spring-boot-starter-security</artifactId>
 		</dependency>
 
-		<!--
-			Jakarta Bean Validation support (@NotBlank, @Size, @Valid).
-			Without this starter, validation annotations on command records
-			are silently ignored at runtime.
-
-			Source: https://docs.spring.io/spring-boot/reference/io/validation.html
-			(Ctrl+F: spring-boot-starter-validation)
-		-->
+		<!-- Source: https://mvnrepository.com/artifact/org.springframework.boot/spring-boot-starter-validation -->
 		<dependency>
 			<groupId>org.springframework.boot</groupId>
 			<artifactId>spring-boot-starter-validation</artifactId>

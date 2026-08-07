@@ -15,9 +15,11 @@ import com.vaadin.flow.component.orderedlayout.VerticalLayout;
 import com.vaadin.flow.component.textfield.IntegerField;
 import com.vaadin.flow.component.textfield.TextArea;
 import com.vaadin.flow.component.textfield.TextField;
+import com.vaadin.flow.component.icon.VaadinIcon;
+import com.vaadin.flow.component.orderedlayout.FlexComponent;
 import com.vaadin.flow.router.PageTitle;
 import com.vaadin.flow.router.Route;
-import jakarta.annotation.security.PermitAll;
+import jakarta.annotation.security.RolesAllowed;
 import org.springframework.data.domain.PageRequest;
 
 import java.util.ArrayList;
@@ -26,14 +28,14 @@ import java.util.List;
 import com.transit.arctransit.common.ui.MainLayout;
 
 /**
- * Route Management CRUD view accessible to all authenticated staff.
+ * Route Management view for creating, viewing, and dynamic stop administration.
  *
  * Includes a dialog-based form with dynamic stop list management
  * for adding and removing ordered stops.
  */
 @Route(value = "routes", layout = MainLayout.class)
 @PageTitle("Route Management")
-@PermitAll
+@RolesAllowed("SYSTEM_ADMIN")
 public class RouteManagementView extends VerticalLayout {
 
     private final RouteManagementService routeService;
@@ -165,10 +167,15 @@ public class RouteManagementView extends VerticalLayout {
         stopsLayout.setPadding(false);
         List<StopFormEntry> stopEntries = new ArrayList<>();
 
-        Button addStopBtn = new Button("Add Stop", click -> {
-            StopFormEntry entry = new StopFormEntry(stopEntries.size() + 1);
-            stopEntries.add(entry);
-            stopsLayout.add(entry.layout);
+        Button addStopBtn = new Button("Add Stop");
+        addStopBtn.addClickListener(click -> {
+            final StopFormEntry[] entryHolder = new StopFormEntry[1];
+            entryHolder[0] = new StopFormEntry(stopEntries.size() + 1, () -> {
+                stopEntries.remove(entryHolder[0]);
+                stopsLayout.remove(entryHolder[0].layout);
+            });
+            stopEntries.add(entryHolder[0]);
+            stopsLayout.add(entryHolder[0].layout);
         });
         addStopBtn.addThemeVariants(ButtonVariant.LUMO_SMALL);
 
@@ -235,20 +242,29 @@ public class RouteManagementView extends VerticalLayout {
         List<StopFormEntry> stopEntries = new ArrayList<>();
 
         for (RouteStopView stop : route.stops()) {
-            StopFormEntry entry = new StopFormEntry(stop.stopSequence());
-            entry.stopName.setValue(stop.stopName());
-            entry.sequence.setValue(stop.stopSequence());
+            final StopFormEntry[] entryHolder = new StopFormEntry[1];
+            entryHolder[0] = new StopFormEntry(stop.stopSequence(), () -> {
+                stopEntries.remove(entryHolder[0]);
+                stopsLayout.remove(entryHolder[0].layout);
+            });
+            entryHolder[0].stopName.setValue(stop.stopName());
+            entryHolder[0].sequence.setValue(stop.stopSequence());
             if (stop.estimatedArrivalMinutes() != null) {
-                entry.arrivalMinutes.setValue(stop.estimatedArrivalMinutes());
+                entryHolder[0].arrivalMinutes.setValue(stop.estimatedArrivalMinutes());
             }
-            stopEntries.add(entry);
-            stopsLayout.add(entry.layout);
+            stopEntries.add(entryHolder[0]);
+            stopsLayout.add(entryHolder[0].layout);
         }
 
-        Button addStopBtn = new Button("Add Stop", click -> {
-            StopFormEntry entry = new StopFormEntry(stopEntries.size() + 1);
-            stopEntries.add(entry);
-            stopsLayout.add(entry.layout);
+        Button addStopBtn = new Button("Add Stop");
+        addStopBtn.addClickListener(click -> {
+            final StopFormEntry[] entryHolder = new StopFormEntry[1];
+            entryHolder[0] = new StopFormEntry(stopEntries.size() + 1, () -> {
+                stopEntries.remove(entryHolder[0]);
+                stopsLayout.remove(entryHolder[0].layout);
+            });
+            stopEntries.add(entryHolder[0]);
+            stopsLayout.add(entryHolder[0].layout);
         });
         addStopBtn.addThemeVariants(ButtonVariant.LUMO_SMALL);
 
@@ -345,13 +361,18 @@ public class RouteManagementView extends VerticalLayout {
         final TextField stopName = new TextField("Stop Name");
         final IntegerField sequence = new IntegerField("Sequence");
         final IntegerField arrivalMinutes = new IntegerField("Arrival (min)");
+        final Button removeBtn = new Button(VaadinIcon.TRASH.create());
         final HorizontalLayout layout;
 
-        StopFormEntry(int defaultSequence) {
+        StopFormEntry(int defaultSequence, Runnable onRemove) {
             sequence.setValue(defaultSequence);
             sequence.setMin(1);
             arrivalMinutes.setMin(0);
-            layout = new HorizontalLayout(stopName, sequence, arrivalMinutes);
+            removeBtn.addThemeVariants(ButtonVariant.LUMO_ERROR, ButtonVariant.LUMO_TERTIARY);
+            removeBtn.setTooltipText("Remove Stop");
+            removeBtn.addClickListener(e -> onRemove.run());
+            layout = new HorizontalLayout(stopName, sequence, arrivalMinutes, removeBtn);
+            layout.setDefaultVerticalComponentAlignment(FlexComponent.Alignment.END);
         }
     }
 }

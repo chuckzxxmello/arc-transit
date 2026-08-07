@@ -116,12 +116,68 @@ public class UserAdministrationView extends VerticalLayout {
         sidePanelContent.add(new Paragraph("Status: " + user.accountStatus()));
         
         Button resetBtn = new Button("Reset Password", e -> openResetPasswordDialog(user.username()));
-        resetBtn.addThemeVariants(ButtonVariant.LUMO_PRIMARY, ButtonVariant.LUMO_ERROR);
+        resetBtn.addThemeVariants(ButtonVariant.LUMO_PRIMARY);
         
-        sidePanelContent.add(new HorizontalLayout(resetBtn));
+        Button changeRoleBtn = new Button("Update Role", e -> openChangeRoleDialog(user.username()));
+        changeRoleBtn.addThemeVariants(ButtonVariant.LUMO_CONTRAST);
+
+        Button deleteUserBtn = new Button("Delete Account", e -> openDeleteUserDialog(user.username()));
+        deleteUserBtn.addThemeVariants(ButtonVariant.LUMO_PRIMARY, ButtonVariant.LUMO_ERROR);
+        
+        sidePanelContent.add(new VerticalLayout(resetBtn, changeRoleBtn, deleteUserBtn));
         
         sidePanel.setVisible(true);
         splitLayout.setSplitterPosition(75);
+    }
+
+    private void openChangeRoleDialog(String username) {
+        Dialog dialog = new Dialog();
+        dialog.setHeaderTitle("Update Role for " + username);
+
+        ComboBox<String> roleCombo = new ComboBox<>("Access Role");
+        roleCombo.setItems("OPERATIONS_STAFF", "SYSTEM_ADMIN");
+        roleCombo.setValue("OPERATIONS_STAFF");
+
+        FormLayout formLayout = new FormLayout(roleCombo);
+
+        Button saveBtn = new Button("Update Role", e -> {
+            try {
+                userService.replaceRoles(new ReplaceUserRolesCommand(username, Set.of(roleCombo.getValue())));
+                dialog.close();
+                refreshGrid("");
+                hideSidePanel();
+                Notification.show("User role updated successfully").addThemeVariants(NotificationVariant.LUMO_SUCCESS);
+            } catch (Exception ex) {
+                Notification.show("Error: " + ex.getMessage()).addThemeVariants(NotificationVariant.LUMO_ERROR);
+            }
+        });
+        saveBtn.addThemeVariants(ButtonVariant.LUMO_PRIMARY);
+
+        Button cancelBtn = new Button("Cancel", e -> dialog.close());
+        dialog.getFooter().add(cancelBtn, saveBtn);
+
+        dialog.add(formLayout);
+        dialog.open();
+    }
+
+    private void openDeleteUserDialog(String username) {
+        com.vaadin.flow.component.confirmdialog.ConfirmDialog dialog = new com.vaadin.flow.component.confirmdialog.ConfirmDialog();
+        dialog.setHeader("Delete User Account: " + username + "?");
+        dialog.setText("Are you sure you want to permanently delete this user staff account? This action cannot be undone.");
+        dialog.setCancelable(true);
+        dialog.setConfirmText("Delete Account");
+        dialog.setConfirmButtonTheme("error primary");
+        dialog.addConfirmListener(e -> {
+            try {
+                userService.deleteUser(username);
+                refreshGrid("");
+                hideSidePanel();
+                Notification.show("User deleted successfully").addThemeVariants(NotificationVariant.LUMO_SUCCESS);
+            } catch (Exception ex) {
+                Notification.show("Error: " + ex.getMessage()).addThemeVariants(NotificationVariant.LUMO_ERROR);
+            }
+        });
+        dialog.open();
     }
     
     private void hideSidePanel() {

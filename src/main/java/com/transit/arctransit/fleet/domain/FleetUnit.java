@@ -13,29 +13,28 @@ import jakarta.persistence.Version;
 import java.time.Instant;
 
 /**
- * Master identity and operational state of a bus registered in the Arc Transit fleet.
+ * Master identity and operational state of a bus registered in the Arc Transit
+ * fleet.
  *
  * Maps to the arc.fleet_units table created by V1__create_fleet_units.sql.
  *
  * Design decisions:
  *
- * 1. @Enumerated(EnumType.STRING) is used for both vehicleType and operationalStatus
- *    so that Hibernate stores the Java enum constant name directly as the VARCHAR
- *    column value. This makes the database human-readable and avoids the fragility
- *    of ordinal-based enum mapping.
- *    Source: https://jakarta.ee/specifications/persistence/3.2/jakarta-persistence-spec-3.2#a14935
- *    (Ctrl+F: EnumType.STRING)
+ * 1. @Enumerated(EnumType.STRING) is used for both vehicleType and
+ * operationalStatus
+ * so that Hibernate stores the Java enum constant name directly as the VARCHAR
+ * column value. This makes the database human-readable and avoids the fragility
+ * of ordinal-based enum mapping.
  *
- * 2. @Version enables JPA optimistic locking. If two transactions attempt to update
- *    the same fleet unit concurrently, the second one receives an
- *    OptimisticLockException instead of silently overwriting the first.
- *    Source: https://jakarta.ee/specifications/persistence/3.2/jakarta-persistence-spec-3.2#a5309
- *    (Ctrl+F: @Version)
+ * 2. @Version enables JPA optimistic locking. If two transactions attempt to
+ * update
+ * the same fleet unit concurrently, the second one receives an
+ * OptimisticLockException instead of silently overwriting the first.
  *
  * 3. Soft-delete via archivedAt: fleet units are never physically deleted from
- *    the database. Instead, the archivedAt timestamp is set to mark the record
- *    as archived. This preserves historical links to dispatch, maintenance,
- *    incident, and audit records.
+ * the database. Instead, the archivedAt timestamp is set to mark the record
+ * as archived. This preserves historical links to dispatch, maintenance,
+ * incident, and audit records.
  */
 @Entity
 @Table(name = "fleet_units", schema = "arc")
@@ -152,13 +151,39 @@ public class FleetUnit {
 
     // --- Getters ---
 
-    public Long getId() { return id; }
-    public String getUnitNumber() { return unitNumber; }
-    public String getPlateNumber() { return plateNumber; }
-    public VehicleType getVehicleType() { return vehicleType; }
-    public Short getCapacity() { return capacity; }
-    public OperationalStatus getOperationalStatus() { return operationalStatus; }
-    public Instant getCreatedAt() { return createdAt; }
-    public Instant getUpdatedAt() { return updatedAt; }
-    public Instant getArchivedAt() { return archivedAt; }
+    public Long getId() {
+        return id;
+    }
+
+    public String getUnitNumber() {
+        return unitNumber;
+    }
+
+    public String getPlateNumber() {
+        return plateNumber;
+    }
+
+    public VehicleType getVehicleType() {
+        return vehicleType;
+    }
+
+    public Short getCapacity() {
+        return capacity;
+    }
+
+    public OperationalStatus getOperationalStatus() {
+        return operationalStatus;
+    }
+
+    public Instant getCreatedAt() {
+        return createdAt;
+    }
+
+    public Instant getUpdatedAt() {
+        return updatedAt;
+    }
+
+    public Instant getArchivedAt() {
+        return archivedAt;
+    }
 }

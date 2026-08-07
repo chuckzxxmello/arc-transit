@@ -16,7 +16,7 @@ import com.vaadin.flow.component.textfield.IntegerField;
 import com.vaadin.flow.component.textfield.TextField;
 import com.vaadin.flow.router.PageTitle;
 import com.vaadin.flow.router.Route;
-import jakarta.annotation.security.PermitAll;
+import jakarta.annotation.security.RolesAllowed;
 import org.springframework.data.domain.PageRequest;
 import com.transit.arctransit.common.ui.MainLayout;
 
@@ -36,7 +36,7 @@ import com.transit.arctransit.common.ui.MainLayout;
  */
 @Route(value = "fleet", layout = MainLayout.class)
 @PageTitle("Fleet Management")
-@PermitAll
+@RolesAllowed("SYSTEM_ADMIN")
 public class FleetManagementView extends VerticalLayout {
 
     private final FleetManagementService fleetService;

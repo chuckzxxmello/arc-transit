@@ -2,10 +2,9 @@
  * Table:
  *      dispatch_assignments
  *
- * Important rules:
+ * NOTE:
  * - A dispatch assignment links one bus, one driver, and one route
  *   for a specific date and departure time.
- *
  * - The same bus cannot be assigned twice at the same date and time.
  * - The same driver cannot be assigned twice at the same date and time.
  *   Both constraints are enforced by unique indexes below.
@@ -179,8 +178,6 @@ CREATE TABLE arc.dispatch_assignments (
  * assignment should not block a replacement assignment.
  *
  * Implementation: partial unique index.
- * Source: https://www.postgresql.org/docs/17/indexes-partial.html
- * (Ctrl+F: CREATE UNIQUE INDEX ... WHERE)
  */
 CREATE UNIQUE INDEX ux_dispatch_fleet_unit_schedule
     ON arc.dispatch_assignments (fleet_unit_id, dispatch_date, scheduled_departure)

@@ -304,3 +304,78 @@ Not yet implemented in the manual rebuild:
   - Engineered `AuthDebugIT.java`, an `@SpringBootTest` integration test directly exercising `AppUserDetailsService.loadUserByUsername()`. Verified that the database role mappings successfully translate into Spring Security `GrantedAuthority` objects (e.g., `ROLE_SYSTEM_ADMIN`).
   - Adjusted PostgreSQL connection credentials specifically tailored for the integration test environment context to ensure robust automated CI/CD pipeline execution.
   - Ran `mvnw clean test` confirming that all unit tests and context loads succeed under Java 21, achieving BUILD SUCCESS and closing out the remaining Week 8 structural deliverables.
+
+---
+
+## Thursday — August 6, 2026 (JDK 21 Optimization & Architectural Mapping)
+
+- **JDK 21 Virtual Threads Integration (Project Loom):**
+  - Added `spring.threads.virtual.enabled=true` to `application.properties` to switch Spring Boot's web server (Tomcat) and Vaadin background tasks from standard platform OS threads to JDK 21 lightweight Virtual Threads (`Thread.ofVirtual()`).
+  - *Why this matters:* Traditional Java threads map 1:1 with heavy OS threads (consuming ~1MB RAM per thread). Virtual Threads are managed by the JVM at near-zero memory cost, allowing the transit system to handle thousands of concurrent operations (such as live bus GPS pings or Vaadin push updates) without running out of thread-pool capacity.
+  - File updated: [application.properties](file:///c:/projects/arc-transit/src/main/resources/application.properties)
+
+- **JDK 21 Sealed Result Interfaces & Exhaustive Pattern Matching:**
+  - Created `DispatchResult.java` using Java 21's `sealed interface` feature, restricting its implementations strictly to two record types: `DispatchResult.Success` (holding `DispatchAssignmentView`) and `DispatchResult.Failed` (holding a String `reason`).
+  - *Why this matters:* Instead of throwing runtime exceptions for expected business failures or returning generic boolean flags, callers can process results using Java 21 pattern-matched `switch` expressions. Because the interface is `sealed`, the compiler enforces that every possible outcome is handled without needing fallback `default` blocks or runtime null-checks.
+  - File created: [DispatchResult.java](file:///c:/projects/arc-transit/src/main/java/com/transit/arctransit/dispatch/DispatchResult.java)
+
+- **System Design & Module Architecture Tree Mapping:**
+  - Conducted a full audit of the codebase to streamline domain value objects and address class proliferation across domain packages. Cited Domain-Driven Design (DDD) principles by Eric Evans/Martin Fowler on Aggregate Root encapsulation and Spring Modulith API package boundaries.
+  - Built a comprehensive, visual Tree Node Map in `implementation_plan.md` documenting every directory, package, database migration, domain entity, Spring Data repository, service implementation, record DTO, and Vaadin UI view across all modules (`auth`, `fleet`, `driver`, `route`, `dispatch`, `audit`, `analytics`, `maintenance`, `common`), explaining the explicit responsibility of each class and interface.
+  - File created: [implementation_plan.md](file:///c:/projects/arc-transit/implementation_plan.md)
+
+- **JDK 21 Build & Modularity Verification:**
+  - Executed Maven test suite explicitly pointing `JAVA_HOME` to JDK 21 (`C:\Program Files\Java\jdk-21.0.11`).
+  - Confirmed 100% pass rate across 38 unit and modularity tests:
+    - `ModularityTests` — Verified all Spring Modulith 2.1.0 package boundaries and dependency rules (`allowedDependencies = {"fleet", "driver", "route", "common"}`).
+    - `AppDispatchServiceTest` (9 tests) — Validated 5-step cross-module dispatch validation rules and lifecycle state machine transitions.
+    - `AppFleetManagementServiceTest` (9 tests) — Verified bus unit registration, status updates, and soft archiving.
+    - `AppDriverManagementServiceTest` (8 tests) — Verified license expiry detection and employee number uniqueness checks.
+    - `AppRouteManagementServiceTest` (7 tests) — Verified route creation and atomic stop sequence reordering.
+    - `AuthenticationTests` (4 tests) — Verified BCrypt password matching and account lock/disable checks.
+
+- **Online Documentation References Used:**
+  - Spring Boot Virtual Threads: https://docs.spring.io/spring-boot/docs/current/reference/html/features.html#features.spring-application.virtual-threads
+  - Oracle Java 21 Virtual Threads Specification: https://docs.oracle.com/en/java/javase/21/core/virtual-threads.html
+  - Oracle Java 21 Sealed Classes & Interfaces: https://docs.oracle.com/en/java/javase/21/language/sealed-classes-and-interfaces.html
+  - Java 21 Pattern Matching for switch: https://docs.oracle.com/en/java/javase/21/language/pattern-matching-switch.html
+  - Java 21 Records Language Guide: https://docs.oracle.com/en/java/javase/21/language/records.html
+  - Martin Fowler — Value Objects: https://martinfowler.com/bliki/ValueObject.html
+  - Martin Fowler — DDD Aggregate Patterns: https://martinfowler.com/bliki/DDD_Aggregate.html
+  - Baeldung — Implementing DDD Value Objects in Java: https://www.baeldung.com/java-ddd-value-objects
+  - Spring Modulith Fundamentals & Boundaries: https://docs.spring.io/spring-modulith/reference/fundamentals.html
+  - Spring Modulith Event-Driven Architecture: https://docs.spring.io/spring-modulith/reference/events.html
+
+- **OWASP Top 10 Security Hardening & Performance Optimizations:**
+  - **OWASP A01 (Broken Access Control):** Annotated [ArchiveView.java](file:///c:/projects/arc-transit/src/main/java/com/transit/arctransit/analytics/ui/ArchiveView.java) with `@RolesAllowed({"SYSTEM_ADMIN", "OPERATIONS_STAFF"})` to ensure soft-deleted archive data is protected from unauthorized access.
+  - **OWASP A05 (Security Misconfiguration & Clickjacking Protection):** Configured HTTP Security Headers in [SecurityConfig.java](file:///c:/projects/arc-transit/src/main/java/com/transit/arctransit/auth/security/SecurityConfig.java) (`frameOptions(SAMEORIGIN)` and `contentTypeOptions()`) to prevent clickjacking attacks on Vaadin UI frames and MIME-sniffing.
+  - **OWASP A07 (Password Complexity Validation):** Enhanced [CreateUserCommand.java](file:///c:/projects/arc-transit/src/main/java/com/transit/arctransit/auth/CreateUserCommand.java) with a `@Pattern` regular expression enforcing strong passwords (minimum 8 characters, uppercase, lowercase, number, and special character).
+  - **OWASP A09 (Security Event Audit Logging):** Created [AuthenticationEventListener.java](file:///c:/projects/arc-transit/src/main/java/com/transit/arctransit/auth/security/AuthenticationEventListener.java) listening to Spring Security `AuthenticationSuccessEvent` and `AbstractAuthenticationFailureEvent`. Automatically logs `USER_LOGIN_SUCCESS` and `USER_LOGIN_FAILED` (with target username and failure reason) to `arc.audit_logs`.
+  - **Network & Database Pool Tuning:** Enabled Gzip HTTP response compression for Vaadin JS/CSS static bundles (`server.compression.enabled=true`) and optimized HikariCP connection pool settings (`maximum-pool-size=10`, `minimum-idle=5`, `connection-timeout=20000`) in [application.properties](file:///c:/projects/arc-transit/src/main/resources/application.properties).
+  - **Verification:** Ran `mvnw test` with JDK 21 `JAVA_HOME`, confirming 100% pass rate across all 38 unit and modularity tests (including `ModularityTests` verifying `AuthenticationEventListener` within the `auth` module boundary).
+
+- **Dispatch Archiving & Dashboard Integration:**
+  - Added Archived Dispatches tab to [ArchiveView.java](file:///c:/projects/arc-transit/src/main/java/com/transit/arctransit/analytics/ui/ArchiveView.java) bound to `DispatchService.searchArchivedAssignments()` with an "Unarchive" action button (`unarchiveAssignment`).
+  - Confirmed status lifecycle flow in `DispatchView.java` (`SCHEDULED -> IN_PROGRESS -> COMPLETED` / `CANCELLED`).
+
+- **Dynamic Route Stop Deletion:**
+  - Added a trash icon "Remove Stop" button (`Button removeBtn`) to each `StopFormEntry` row in [RouteManagementView.java](file:///c:/projects/arc-transit/src/main/java/com/transit/arctransit/route/ui/RouteManagementView.java), enabling staff to delete added or existing stops directly from the dialog form before saving.
+
+- **Staff Account Management & Role Promotion:**
+  - Added `deleteUser(String username)` method to [UserAdministrationService.java](file:///c:/projects/arc-transit/src/main/java/com/transit/arctransit/auth/UserAdministrationService.java) and [AppUserAdministrationService.java](file:///c:/projects/arc-transit/src/main/java/com/transit/arctransit/auth/application/AppUserAdministrationService.java) with `@PreAuthorize("hasRole('SYSTEM_ADMIN')")`.
+  - Added "Delete Account" (with `ConfirmDialog` warning) and "Update Role" buttons to [UserAdministrationView.java](file:///c:/projects/arc-transit/src/main/java/com/transit/arctransit/auth/ui/UserAdministrationView.java), allowing administrators to permanently remove staff accounts or promote `OPERATIONS_STAFF` to `SYSTEM_ADMIN`.
+
+- **Custom Error Handling & Access Denied Redirects:**
+  - Created [CustomAccessDeniedView.java](file:///c:/projects/arc-transit/src/main/java/com/transit/arctransit/common/ui/CustomAccessDeniedView.java) implementing `HasErrorParameter<AccessDeniedException>` to render a friendly access denied screen with a "Go Back to Dashboard" button whenever an unauthorized user (e.g. `OPERATIONS_STAFF`) attempts to access restricted routes like `/admin/users`, `/fleet`, or `/archive`.
+  - Created [CustomNotFoundView.java](file:///c:/projects/arc-transit/src/main/java/com/transit/arctransit/common/ui/CustomNotFoundView.java) implementing `HasErrorParameter<NotFoundException>` to render an "Invalid Page — Go Back to Dashboard" screen for invalid or non-existent URLs.
+
+- **Full Build & Compilation Verification:**
+  - Resolved `RolesAllowed` imports and property accessors (`fleetUnitNumber()`, `dispatchStatus()`) in `ArchiveView.java` and `RouteManagementView.java`.
+  - Executed `mvnw test-compile` with JDK 21 `JAVA_HOME`, achieving **BUILD SUCCESS** across all 97 main source files and 8 test files with zero errors under release target 21.
+
+
+
+
+
+
+

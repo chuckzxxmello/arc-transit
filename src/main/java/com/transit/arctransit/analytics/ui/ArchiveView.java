@@ -34,21 +34,28 @@ import org.springframework.security.core.context.SecurityContextHolder;
 
 import java.util.stream.Collectors;
 
+import jakarta.annotation.security.RolesAllowed;
+
+import com.transit.arctransit.dispatch.DispatchService;
+import com.transit.arctransit.dispatch.DispatchAssignmentView;
+
 /**
  * Archive view to display soft-deleted records.
  */
 @Route(value = "archive", layout = MainLayout.class)
 @PageTitle("Archived Data")
-@PermitAll
+@RolesAllowed("SYSTEM_ADMIN")
 public class ArchiveView extends VerticalLayout {
 
     private final FleetManagementService fleetService;
     private final DriverManagementService driverService;
     private final RouteManagementService routeService;
+    private final DispatchService dispatchService;
 
     private final Grid<FleetUnitSummaryView> fleetGrid = new Grid<>();
     private final Grid<DriverSummaryView> driverGrid = new Grid<>();
     private final Grid<RouteSummaryView> routeGrid = new Grid<>();
+    private final Grid<DispatchAssignmentView> dispatchGrid = new Grid<>();
 
     private final SplitLayout splitLayout = new SplitLayout();
     private final VerticalLayout sidePanel = new VerticalLayout();
@@ -58,10 +65,12 @@ public class ArchiveView extends VerticalLayout {
 
     public ArchiveView(FleetManagementService fleetService,
                        DriverManagementService driverService,
-                       RouteManagementService routeService) {
+                       RouteManagementService routeService,
+                       DispatchService dispatchService) {
         this.fleetService = fleetService;
         this.driverService = driverService;
         this.routeService = routeService;
+        this.dispatchService = dispatchService;
 
         setSizeFull();
         setPadding(false);
@@ -134,6 +143,20 @@ public class ArchiveView extends VerticalLayout {
         routeGrid.addSelectionListener(e -> e.getFirstSelectedItem().ifPresent(r -> showDetails("Archived Route", "Code: " + r.routeCode() + "\nName: " + r.routeName())));
         tabSheet.add(new Tab("Archived Routes"), routeGrid);
 
+        // Archived Dispatches
+        dispatchGrid.addColumn(DispatchAssignmentView::fleetUnitNumber).setHeader("Bus");
+        dispatchGrid.addColumn(DispatchAssignmentView::driverName).setHeader("Driver");
+        dispatchGrid.addColumn(DispatchAssignmentView::routeCode).setHeader("Route");
+        dispatchGrid.addColumn(DispatchAssignmentView::dispatchStatus).setHeader("Status");
+        if (isAdmin) {
+            dispatchGrid.addComponentColumn(d -> createActionButtons("Dispatch Assignment #" + d.id(),
+                null,
+                () -> { dispatchService.unarchiveAssignment(d.id()); refreshDispatches(); }
+            )).setHeader("Actions").setAutoWidth(true);
+        }
+        dispatchGrid.addSelectionListener(e -> e.getFirstSelectedItem().ifPresent(d -> showDetails("Archived Dispatch", "Bus: " + d.fleetUnitNumber() + "\nDriver: " + d.driverName() + "\nStatus: " + d.dispatchStatus())));
+        tabSheet.add(new Tab("Archived Dispatches"), dispatchGrid);
+
         VerticalLayout contentContainer = new VerticalLayout(headerLayout, tabSheet);
         contentContainer.setSizeFull();
         contentContainer.setPadding(false);
@@ -161,40 +184,48 @@ public class ArchiveView extends VerticalLayout {
     }
 
     private HorizontalLayout createActionButtons(String entityName, Runnable deleteAction, Runnable unarchiveAction) {
-        Button delBtn = new Button(VaadinIcon.TRASH.create());
-        delBtn.addThemeVariants(ButtonVariant.LUMO_ERROR, ButtonVariant.LUMO_TERTIARY);
-        delBtn.setTooltipText("Hard Delete");
-        delBtn.addClickListener(e -> {
-            ConfirmDialog dialog = new ConfirmDialog();
-            dialog.setHeader("Permanently Delete " + entityName + "?");
-            dialog.setText("Are you sure? This action cannot be undone and will permanently erase this record from the database.");
-            dialog.setCancelable(true);
-            dialog.setConfirmText("Delete Forever");
-            dialog.setConfirmButtonTheme("error primary");
-            dialog.addConfirmListener(event -> {
+        HorizontalLayout layout = new HorizontalLayout();
+
+        if (unarchiveAction != null) {
+            Button unarchiveBtn = new Button(VaadinIcon.ARROW_CIRCLE_UP.create());
+            unarchiveBtn.addThemeVariants(ButtonVariant.LUMO_SUCCESS, ButtonVariant.LUMO_TERTIARY);
+            unarchiveBtn.setTooltipText("Unarchive");
+            unarchiveBtn.addClickListener(e -> {
                 try {
-                    deleteAction.run();
-                    Notification.show(entityName + " permanently deleted.").addThemeVariants(NotificationVariant.LUMO_SUCCESS);
+                    unarchiveAction.run();
+                    Notification.show(entityName + " unarchived.").addThemeVariants(NotificationVariant.LUMO_SUCCESS);
                 } catch (Exception ex) {
                     Notification.show("Error: " + ex.getMessage(), 5000, Notification.Position.MIDDLE).addThemeVariants(NotificationVariant.LUMO_ERROR);
                 }
             });
-            dialog.open();
-        });
-        
-        Button unarchiveBtn = new Button(VaadinIcon.ARROW_CIRCLE_UP.create());
-        unarchiveBtn.addThemeVariants(ButtonVariant.LUMO_SUCCESS, ButtonVariant.LUMO_TERTIARY);
-        unarchiveBtn.setTooltipText("Unarchive");
-        unarchiveBtn.addClickListener(e -> {
-            try {
-                unarchiveAction.run();
-                Notification.show(entityName + " unarchived.").addThemeVariants(NotificationVariant.LUMO_SUCCESS);
-            } catch (Exception ex) {
-                Notification.show("Error: " + ex.getMessage(), 5000, Notification.Position.MIDDLE).addThemeVariants(NotificationVariant.LUMO_ERROR);
-            }
-        });
+            layout.add(unarchiveBtn);
+        }
 
-        return new HorizontalLayout(unarchiveBtn, delBtn);
+        if (deleteAction != null) {
+            Button delBtn = new Button(VaadinIcon.TRASH.create());
+            delBtn.addThemeVariants(ButtonVariant.LUMO_ERROR, ButtonVariant.LUMO_TERTIARY);
+            delBtn.setTooltipText("Hard Delete");
+            delBtn.addClickListener(e -> {
+                ConfirmDialog dialog = new ConfirmDialog();
+                dialog.setHeader("Permanently Delete " + entityName + "?");
+                dialog.setText("Are you sure? This action cannot be undone and will permanently erase this record from the database.");
+                dialog.setCancelable(true);
+                dialog.setConfirmText("Delete Forever");
+                dialog.setConfirmButtonTheme("error primary");
+                dialog.addConfirmListener(event -> {
+                    try {
+                        deleteAction.run();
+                        Notification.show(entityName + " permanently deleted.").addThemeVariants(NotificationVariant.LUMO_SUCCESS);
+                    } catch (Exception ex) {
+                        Notification.show("Error: " + ex.getMessage(), 5000, Notification.Position.MIDDLE).addThemeVariants(NotificationVariant.LUMO_ERROR);
+                    }
+                });
+                dialog.open();
+            });
+            layout.add(delBtn);
+        }
+
+        return layout;
     }
     
     private void showDetails(String title, String content) {
@@ -213,6 +244,7 @@ public class ArchiveView extends VerticalLayout {
         refreshFleet();
         refreshDrivers();
         refreshRoutes();
+        refreshDispatches();
     }
 
     private void refreshFleet() {
@@ -240,5 +272,16 @@ public class ArchiveView extends VerticalLayout {
             items = items.stream().filter(r -> r.routeCode().toLowerCase().contains(q) || r.routeName().toLowerCase().contains(q)).collect(Collectors.toList());
         }
         routeGrid.setItems(items);
+    }
+
+    private void refreshDispatches() {
+        var items = dispatchService.searchArchivedAssignments(PageRequest.of(0, 100)).getContent();
+        if (currentSearchFilter != null && !currentSearchFilter.isEmpty()) {
+            String q = currentSearchFilter.toLowerCase();
+            items = items.stream().filter(d -> (d.fleetUnitNumber() != null && d.fleetUnitNumber().toLowerCase().contains(q))
+                    || (d.driverName() != null && d.driverName().toLowerCase().contains(q))
+                    || (d.routeCode() != null && d.routeCode().toLowerCase().contains(q))).collect(Collectors.toList());
+        }
+        dispatchGrid.setItems(items);
     }
 }

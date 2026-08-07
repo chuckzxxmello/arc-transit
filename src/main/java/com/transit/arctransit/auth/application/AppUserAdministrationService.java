@@ -120,6 +120,15 @@ public class AppUserAdministrationService implements UserAdministrationService {
         user.changePassword(passwordEncoder.encode(newPassword));
     }
 
+    @Override
+    @PreAuthorize("hasRole('SYSTEM_ADMIN')")
+    public void deleteUser(String username) {
+        AppUser user = userRepository.findByUsername(username)
+                .orElseThrow(() -> new ResourceNotFoundException("User not found: " + username));
+        roleRepository.deleteByUserId(user.getId());
+        userRepository.delete(user);
+    }
+
     private UserView toUserView(AppUser user) {
         var roles = roleRepository.findByUserId(user.getId()).stream()
                 .map(UserRole::getRoleCode)

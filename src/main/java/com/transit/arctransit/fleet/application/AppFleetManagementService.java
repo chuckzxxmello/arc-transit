@@ -17,18 +17,12 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 /**
- * Internal implementation of FleetManagementService.
- *
  * This class resides in the fleet.application subpackage, making it
  * internal to the Fleet module per Spring Modulith conventions.
  * Other modules can only access the public FleetManagementService interface.
  *
- * Source: https://docs.spring.io/spring-modulith/reference/fundamentals.html
- * (Ctrl+F: "internal")
- *
  * All methods require authentication (either SYSTEM_ADMIN or OPERATIONS_STAFF).
- * Source: https://docs.spring.io/spring-security/reference/servlet/authorization/method-security.html
- * (Ctrl+F: @PreAuthorize)
+ * (@PreAuthorize)
  */
 @Service
 @Transactional
@@ -40,9 +34,6 @@ public class AppFleetManagementService implements FleetManagementService {
     /**
      * Implicit constructor injection (no @Autowired needed).
      * Spring automatically injects the single constructor's parameters.
-     *
-     * Source: https://docs.spring.io/spring-framework/reference/core/beans/annotation-config/autowired.html
-     * (Ctrl+F: "single constructor")
      */
     public AppFleetManagementService(FleetUnitRepository fleetUnitRepository, AuditRecordingService auditService) {
         this.fleetUnitRepository = fleetUnitRepository;
@@ -72,11 +63,11 @@ public class AppFleetManagementService implements FleetManagementService {
                 normalizedUnitNumber,
                 normalizedPlateNumber,
                 VehicleType.BUS,
-                command.capacity()
-        );
+                command.capacity());
 
         FleetUnit saved = fleetUnitRepository.save(unit);
-        auditService.recordAction("FLEET_UNIT_REGISTERED", "FleetUnit", saved.getId(), "Registered unit " + saved.getUnitNumber());
+        auditService.recordAction("FLEET_UNIT_REGISTERED", "FleetUnit", saved.getId(),
+                "Registered unit " + saved.getUnitNumber());
         return toView(saved);
     }
 
@@ -107,7 +98,8 @@ public class AppFleetManagementService implements FleetManagementService {
                 });
 
         unit.updateDetails(normalizedUnitNumber, normalizedPlateNumber, command.capacity());
-        auditService.recordAction("FLEET_UNIT_UPDATED", "FleetUnit", unit.getId(), "Updated details for unit " + unit.getUnitNumber());
+        auditService.recordAction("FLEET_UNIT_UPDATED", "FleetUnit", unit.getId(),
+                "Updated details for unit " + unit.getUnitNumber());
         return toView(unit);
     }
 
@@ -124,7 +116,8 @@ public class AppFleetManagementService implements FleetManagementService {
             throw new CommandValidationException("Invalid operational status: " + newStatus);
         }
 
-        auditService.recordAction("FLEET_UNIT_STATUS_CHANGED", "FleetUnit", unit.getId(), "Status changed to " + newStatus + " for unit " + unit.getUnitNumber());
+        auditService.recordAction("FLEET_UNIT_STATUS_CHANGED", "FleetUnit", unit.getId(),
+                "Status changed to " + newStatus + " for unit " + unit.getUnitNumber());
         return toView(unit);
     }
 
@@ -152,7 +145,8 @@ public class AppFleetManagementService implements FleetManagementService {
         try {
             fleetUnitRepository.deleteById(id);
         } catch (org.springframework.dao.DataIntegrityViolationException ex) {
-            throw new BusinessConflictException("Cannot permanently delete fleet unit " + id + " because it is referenced by other records (e.g., dispatch assignments).");
+            throw new BusinessConflictException("Cannot permanently delete fleet unit " + id
+                    + " because it is referenced by other records (e.g., dispatch assignments).");
         }
     }
 
@@ -166,8 +160,7 @@ public class AppFleetManagementService implements FleetManagementService {
                         unit.getUnitNumber(),
                         unit.getPlateNumber(),
                         unit.getCapacity(),
-                        unit.getOperationalStatus().name()
-                ));
+                        unit.getOperationalStatus().name()));
     }
 
     @Override
@@ -180,8 +173,7 @@ public class AppFleetManagementService implements FleetManagementService {
                         unit.getUnitNumber(),
                         unit.getPlateNumber(),
                         unit.getCapacity(),
-                        unit.getOperationalStatus().name()
-                ));
+                        unit.getOperationalStatus().name()));
     }
 
     @Override
@@ -200,7 +192,6 @@ public class AppFleetManagementService implements FleetManagementService {
                 unit.getPlateNumber(),
                 unit.getVehicleType().name(),
                 unit.getCapacity(),
-                unit.getOperationalStatus().name()
-        );
+                unit.getOperationalStatus().name());
     }
 }

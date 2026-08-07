@@ -10,8 +10,6 @@ import java.util.Optional;
  * Data access for fleet unit master records.
  *
  * Extends JpaRepository which provides built-in CRUD and pagination.
- * Source: https://docs.spring.io/spring-data/jpa/reference/jpa/query-methods.html
- * (Ctrl+F: JpaRepository)
  */
 public interface FleetUnitRepository extends JpaRepository<FleetUnit, Long> {
 

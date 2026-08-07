@@ -2,13 +2,9 @@
  * Table:
  *      drivers
  *
- * Important rules:
+ * Note:
  * - Drivers are operational staff records, not application user accounts.
  *   A driver does not automatically receive a login account.
- *
- *   Source: V2__create_authentication_tables.sql header comment
- *   "Drivers are operational records and do not automatically receive accounts."
- *
  * - Employee numbers remain unique across active and archived records.
  * - License numbers remain unique across active and archived records.
  * - Java/JPA manages the application timestamps (created_at, updated_at).
@@ -32,8 +28,6 @@ CREATE TABLE arc.drivers (
 
     /*
      * Internal database identifier for a driver record.
-     *
-     * PostgreSQL generates this value automatically.
      * Application code does not choose the ID.
      */
     id BIGINT GENERATED ALWAYS AS IDENTITY,
@@ -55,7 +49,7 @@ CREATE TABLE arc.drivers (
     first_name VARCHAR(80) NOT NULL,
 
     /*
-     * Driver's last name (surname / family name).
+     * Driver's last name.
      */
     last_name VARCHAR(80) NOT NULL,
 
@@ -69,7 +63,7 @@ CREATE TABLE arc.drivers (
     license_number VARCHAR(50) NOT NULL,
 
     /*
-     * Classification of the driver's license.
+     * The classification of the driver's license.
      *
      * PROFESSIONAL:
      *   Licensed to operate public utility vehicles (buses).
@@ -83,20 +77,20 @@ CREATE TABLE arc.drivers (
     license_type VARCHAR(30) NOT NULL,
 
     /*
-     * Date when the driver's license expires.
+     * The date when the driver's license expires.
      *
      * The Java application service must check this date before
      * creating a dispatch assignment. An expired license should
      * prevent the driver from being dispatched.
      *
-     * Stored as a DATE (no time component) because license
+     * Stored as a DATE without a  time component, because license
      * expiry is measured in calendar days.
      */
     license_expiry_date DATE NOT NULL,
 
     /*
      * Optional contact phone number.
-     * NULL means no contact number was supplied.
+     * NULL means no contact number.
      */
     contact_number VARCHAR(30),
 
@@ -126,7 +120,7 @@ CREATE TABLE arc.drivers (
     updated_at TIMESTAMPTZ NOT NULL,
 
     /*
-     * Soft-delete/archive timestamp.
+     * Archive (soft-delete) timestamp.
      *
      * if archived_at is NULL:
      *      -> The driver record is active (not archived).

@@ -39,4 +39,9 @@ public interface UserAdministrationService {
      * Resets a user's password.
      */
     void resetPassword(String username, String newPassword);
+
+    /**
+     * Deletes a staff account permanently.
+     */
+    void deleteUser(String username);
 }

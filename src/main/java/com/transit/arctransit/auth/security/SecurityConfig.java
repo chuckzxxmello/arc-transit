@@ -35,8 +35,9 @@ public class SecurityConfig {
             .requestMatchers("/**").permitAll()
         );
 
-        http.requestCache(cache -> cache
-                .requestCache(new com.vaadin.flow.spring.security.VaadinDefaultRequestCache())
+        http.headers(headers -> headers
+            .frameOptions(frame -> frame.sameOrigin())
+            .contentTypeOptions(org.springframework.security.config.Customizer.withDefaults())
         );
 
         return http.build();

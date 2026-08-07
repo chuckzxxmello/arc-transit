@@ -17,12 +17,12 @@ import com.vaadin.flow.component.orderedlayout.VerticalLayout;
 import com.vaadin.flow.component.textfield.TextField;
 import com.vaadin.flow.router.PageTitle;
 import com.vaadin.flow.router.Route;
-import jakarta.annotation.security.PermitAll;
+import jakarta.annotation.security.RolesAllowed;
 import org.springframework.data.domain.PageRequest;
 import com.transit.arctransit.common.ui.MainLayout;
 
 /**
- * Driver Management CRUD view accessible to all authenticated staff.
+ * Driver Management CRUD view for System Administrators.
  *
  * Features a Grid with a visual indicator for expired licenses
  * (red badge) to alert operations staff.
@@ -33,7 +33,7 @@ import com.transit.arctransit.common.ui.MainLayout;
  */
 @Route(value = "drivers", layout = MainLayout.class)
 @PageTitle("Driver Management")
-@PermitAll
+@RolesAllowed("SYSTEM_ADMIN")
 public class DriverManagementView extends VerticalLayout {
 
     private final DriverManagementService driverService;

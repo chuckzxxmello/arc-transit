@@ -96,17 +96,19 @@ public class MainLayout extends AppLayout {
     private void createDrawer() {
         SideNav nav = new SideNav();
 
-        // Using string paths instead of class references to avoid cyclic dependencies in Modulith
-        nav.addItem(new SideNavItem("Dashboard Overview", "", VaadinIcon.DASHBOARD.create()));
-        nav.addItem(new SideNavItem("Live Fleet Monitor", "fleet", VaadinIcon.BUS.create()));
-        nav.addItem(new SideNavItem("Driver Management", "drivers", VaadinIcon.USER_CARD.create()));
-        nav.addItem(new SideNavItem("Route Schedule", "routes", VaadinIcon.MAP_MARKER.create()));
-        nav.addItem(new SideNavItem("Dispatch & Assignment", "dispatch", VaadinIcon.CLIPBOARD_CHECK.create()));
-        nav.addItem(new SideNavItem("Archived Data", "archive", VaadinIcon.ARCHIVE.create()));
-
-        // Check Roles for User Administration
         Authentication auth = SecurityContextHolder.getContext().getAuthentication();
-        if (auth != null && auth.getAuthorities().stream().anyMatch(a -> a.getAuthority().equals("ROLE_SYSTEM_ADMIN"))) {
+        boolean isAdmin = auth != null && auth.getAuthorities().stream().anyMatch(a -> a.getAuthority().equals("ROLE_SYSTEM_ADMIN"));
+
+        // Accessible to all staff
+        nav.addItem(new SideNavItem("Dashboard Overview", "", VaadinIcon.DASHBOARD.create()));
+        nav.addItem(new SideNavItem("Dispatch & Assignment", "dispatch", VaadinIcon.CLIPBOARD_CHECK.create()));
+
+        // Restricted exclusively to SYSTEM_ADMIN
+        if (isAdmin) {
+            nav.addItem(new SideNavItem("Live Fleet Monitor", "fleet", VaadinIcon.BUS.create()));
+            nav.addItem(new SideNavItem("Driver Management", "drivers", VaadinIcon.USER_CARD.create()));
+            nav.addItem(new SideNavItem("Route Schedule", "routes", VaadinIcon.MAP_MARKER.create()));
+            nav.addItem(new SideNavItem("Archived Data", "archive", VaadinIcon.ARCHIVE.create()));
             nav.addItem(new SideNavItem("User Administration", "admin/users", VaadinIcon.USERS.create()));
         }
 
