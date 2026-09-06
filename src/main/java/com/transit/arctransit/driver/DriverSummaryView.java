@@ -1,8 +1,6 @@
 package com.transit.arctransit.driver;
 
-/**
- * Summary view for driver management list grids.
- */
+// summary view for driver management list grids
 public record DriverSummaryView(
         Long id,
         String employeeNumber,

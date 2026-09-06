@@ -5,10 +5,9 @@ import jakarta.validation.constraints.NotNull;
 import java.time.Instant;
 import java.time.LocalDate;
 
-/**
- * Command to create a new dispatch assignment.
- */
+// command for creating a dispatch assignment
 public record CreateDispatchCommand(
+
         @NotNull(message = "Fleet unit ID is required") Long fleetUnitId,
         @NotNull(message = "Driver ID is required") Long driverId,
         @NotNull(message = "Route ID is required") Long routeId,
@@ -16,4 +15,6 @@ public record CreateDispatchCommand(
         @NotNull(message = "Scheduled departure time is required") Instant scheduledDeparture,
         Instant scheduledArrival,
         String notes
-) {}
+
+) {
+}

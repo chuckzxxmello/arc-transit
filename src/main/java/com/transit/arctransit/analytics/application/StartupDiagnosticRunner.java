@@ -1,11 +1,21 @@
 package com.transit.arctransit.analytics.application;
 
+// dispatch
 import com.transit.arctransit.dispatch.DispatchService;
+
+// driver
 import com.transit.arctransit.driver.DriverManagementService;
+
+// fleet
 import com.transit.arctransit.fleet.FleetManagementService;
+
+// route
 import com.transit.arctransit.route.RouteManagementService;
+
+// spring
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+
 import org.springframework.boot.ApplicationArguments;
 import org.springframework.boot.ApplicationRunner;
 import org.springframework.data.domain.PageRequest;
@@ -16,69 +26,171 @@ import org.springframework.stereotype.Component;
 
 import java.util.List;
 
-/**
- * Startup diagnostic runner that verifies all module APIs are accessible
- * and logs summary statistics to the console.
- *
- * This runs on every application startup to provide runtime proof that
- * the Fleet, Driver, Route, and Dispatch service layers are working.
- *
- * Uses a temporary SecurityContext with SYSTEM_ADMIN authority so that
- * the @PreAuthorize checks pass during the verification queries.
- *
- * Source: https://docs.spring.io/spring-boot/api/java/org/springframework/boot/ApplicationRunner.html
- */
+// startup diagnostic runner
+
 @Component
-public class StartupDiagnosticRunner implements ApplicationRunner {
+public class StartupDiagnosticRunner
+        implements ApplicationRunner {
 
-    private static final Logger log = LoggerFactory.getLogger(StartupDiagnosticRunner.class);
+    // logger
+    private static final Logger log =
+            LoggerFactory.getLogger(
+                    StartupDiagnosticRunner.class
+            );
 
+    // diagnostic authority
+    private static final String SYSTEM_ADMIN_AUTHORITY =
+            "ROLE_SYSTEM_ADMIN";
+
+    // dependencies
     private final FleetManagementService fleetService;
     private final DriverManagementService driverService;
     private final RouteManagementService routeService;
     private final DispatchService dispatchService;
 
-    public StartupDiagnosticRunner(FleetManagementService fleetService,
-                                    DriverManagementService driverService,
-                                    RouteManagementService routeService,
-                                    DispatchService dispatchService) {
+    // constructor
+    public StartupDiagnosticRunner(
+            FleetManagementService fleetService,
+            DriverManagementService driverService,
+            RouteManagementService routeService,
+            DispatchService dispatchService) {
+
         this.fleetService = fleetService;
         this.driverService = driverService;
         this.routeService = routeService;
         this.dispatchService = dispatchService;
     }
 
+    // run diagnostics after application startup
     @Override
-    public void run(ApplicationArguments args) {
-        log.info("===== ARC TRANSIT STARTUP DIAGNOSTIC =====");
+    public void run(
+            ApplicationArguments args) {
 
-        // Set up a temporary SYSTEM_ADMIN context for @PreAuthorize checks
-        var auth = new UsernamePasswordAuthenticationToken(
-                "startup-diagnostic", null,
-                List.of(new SimpleGrantedAuthority("ROLE_SYSTEM_ADMIN")));
-        SecurityContextHolder.getContext().setAuthentication(auth);
+        log.info(
+                "===== ARC TRANSIT STARTUP DIAGNOSTIC ====="
+        );
+
+        installDiagnosticAuthentication();
 
         try {
-            long fleetCount = fleetService.searchUnits(null, PageRequest.of(0, 1)).getTotalElements();
-            log.info("[Fleet]    Active fleet units: {}", fleetCount);
 
-            long driverCount = driverService.searchDrivers(null, PageRequest.of(0, 1)).getTotalElements();
-            log.info("[Driver]   Active drivers: {}", driverCount);
+            verifyFleet();
+            verifyDrivers();
+            verifyRoutes();
+            verifyDispatch();
 
-            long routeCount = routeService.searchRoutes(null, PageRequest.of(0, 1)).getTotalElements();
-            log.info("[Route]    Active routes: {}", routeCount);
+            log.info(
+                    "===== ALL MODULES VERIFIED SUCCESSFULLY ====="
+            );
 
-            long completedTrips = dispatchService.countCompletedTrips();
-            log.info("[Dispatch] Completed trips: {}", completedTrips);
+        } catch (Exception exception) {
 
-            long totalAssignments = dispatchService.searchAssignments(null, PageRequest.of(0, 1)).getTotalElements();
-            log.info("[Dispatch] Total assignments: {}", totalAssignments);
+            log.error(
+                    "===== STARTUP DIAGNOSTIC FAILED =====",
+                    exception
+            );
 
-            log.info("===== ALL MODULES VERIFIED SUCCESSFULLY =====");
-        } catch (Exception e) {
-            log.error("===== STARTUP DIAGNOSTIC FAILED =====", e);
         } finally {
+
             SecurityContextHolder.clearContext();
         }
+    }
+
+    // install temporary admin authority
+    private void installDiagnosticAuthentication() {
+
+        var authentication =
+                new UsernamePasswordAuthenticationToken(
+                        "startup-diagnostic",
+                        null,
+                        List.of(
+                                new SimpleGrantedAuthority(
+                                        SYSTEM_ADMIN_AUTHORITY
+                                )
+                        )
+                );
+
+        SecurityContextHolder
+                .getContext()
+                .setAuthentication(
+                        authentication
+                );
+    }
+
+    // verify Fleet module
+    private void verifyFleet() {
+
+        long count =
+                fleetService
+                        .searchUnits(
+                                null,
+                                PageRequest.of(0, 1)
+                        )
+                        .getTotalElements();
+
+        log.info(
+                "[Fleet]    Active fleet units: {}",
+                count
+        );
+    }
+
+    // verify Driver module
+    private void verifyDrivers() {
+
+        long count =
+                driverService
+                        .searchDrivers(
+                                null,
+                                PageRequest.of(0, 1)
+                        )
+                        .getTotalElements();
+
+        log.info(
+                "[Driver]   Active drivers: {}",
+                count
+        );
+    }
+
+    // verify Route module
+    private void verifyRoutes() {
+
+        long count =
+                routeService
+                        .searchRoutes(
+                                null,
+                                PageRequest.of(0, 1)
+                        )
+                        .getTotalElements();
+
+        log.info(
+                "[Route]    Active routes: {}",
+                count
+        );
+    }
+
+    // verify Dispatch module
+    private void verifyDispatch() {
+
+        long completedTrips =
+                dispatchService
+                        .countCompletedTrips();
+
+        long totalAssignments =
+                dispatchService
+                        .searchAssignments(
+                                null,
+                                PageRequest.of(0, 1)
+                        )
+                        .getTotalElements();
+
+        log.info(
+                "[Dispatch] Completed trips: {}",
+                completedTrips
+        );
+
+        log.info(
+                "[Dispatch] Total assignments: {}",
+                totalAssignments
+        );
     }
 }

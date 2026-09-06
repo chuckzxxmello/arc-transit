@@ -1,58 +1,116 @@
 package com.transit.arctransit.auth;
 
+// import appuser domain repository
 import com.transit.arctransit.auth.domain.AppUser;
 import com.transit.arctransit.auth.domain.AppUserRepository;
-import com.transit.arctransit.auth.domain.UserRole;
-import com.transit.arctransit.auth.domain.UserRoleRepository;
+
+// import jdbc and logger
+import org.springframework.jdbc.core.JdbcTemplate;
+import org.springframework.transaction.annotation.Transactional;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
+// import springframework beans
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.CommandLineRunner;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Component;
 
-/**
- * Initializes the default system administrator if none exist.
- * Reads credentials securely from application.properties to avoid hardcoding in SQL.
- */
+// initializes the default system administrator if none exist
 @Component
 public class AdminUserInitializer implements CommandLineRunner {
+	
+	private static final Logger log = 
+			LoggerFactory.getLogger(AdminUserInitializer.class);
+	
+	private static final String SYSTEM_ADMIN_ROLE = "SYSTEM_ADMIN";
 
     private final AppUserRepository userRepository;
-    private final UserRoleRepository userRoleRepository;
     private final PasswordEncoder passwordEncoder;
+    private final JdbcTemplate jdbcTemplate;
     
-    @Value("${arc.security.admin.username:admin}")
-    private String adminUsername;
+    private final String adminUsername;
+    private final String adminPassword;
 
-    @Value("${arc.security.admin.password:ArcTransit123}")
-    private String adminPassword;
-
-    private final org.springframework.jdbc.core.JdbcTemplate jdbcTemplate;
-
-    public AdminUserInitializer(AppUserRepository userRepository, UserRoleRepository userRoleRepository, PasswordEncoder passwordEncoder, org.springframework.jdbc.core.JdbcTemplate jdbcTemplate) {
-        this.userRepository = userRepository;
-        this.userRoleRepository = userRoleRepository;
-        this.passwordEncoder = passwordEncoder;
-        this.jdbcTemplate = jdbcTemplate;
-    }
+    public AdminUserInitializer(
+    						AppUserRepository userRepository,
+    						PasswordEncoder passwordEncoder,
+				    		JdbcTemplate jdbcTemplate,
+				    		@Value("${arc.security.admin.username}") String adminUsername,
+				    		@Value("${arc.security.admin.password}") String adminPassword) {
+    	this.userRepository = userRepository;
+		this.passwordEncoder = passwordEncoder;
+		this.jdbcTemplate = jdbcTemplate;
+		this.adminUsername = adminUsername;
+		this.adminPassword = adminPassword;
+    		}
 
     @Override
-    @org.springframework.transaction.annotation.Transactional
+    @Transactional
     public void run(String... args) {
-        if (userRepository.count() == 0) {
-            AppUser admin = new AppUser(adminUsername, passwordEncoder.encode(adminPassword), "Default Admin", null);
-            admin = userRepository.save(admin);
-            
-            jdbcTemplate.update("INSERT INTO arc.user_roles (user_id, role_code, assigned_at) VALUES (?, ?, CURRENT_TIMESTAMP)", admin.getId(), "SYSTEM_ADMIN");
-
-            System.out.println("Default System Administrator initialized via JdbcTemplate.");
-        } else {
-            // Check if admin user exists but is missing the role (due to old database state)
-            userRepository.findByUsername(adminUsername).ifPresent(admin -> {
-                if (admin.getUserRoles().isEmpty()) {
-                    jdbcTemplate.update("INSERT INTO arc.user_roles (user_id, role_code, assigned_at) VALUES (?, ?, CURRENT_TIMESTAMP)", admin.getId(), "SYSTEM_ADMIN");
-                    System.out.println("Added SYSTEM_ADMIN role to existing " + adminUsername + " user via JdbcTemplate.");
-                }
-            });
-        }
+    	
+    	// Add a admin user after the application has started
+        userRepository.findByUsername(adminUsername)
+        										.ifPresentOrElse(
+										        			this::ensureSystemAdminRole,
+										        			this::createAdmin
+        										);
     }
+    
+    private void createAdmin() {
+    	AppUser admin = new AppUser(
+				    			adminUsername,
+				    			passwordEncoder.encode(adminPassword),
+				    			"Default Admin",
+				    			null
+    	);
+    	admin = userRepository.save(admin);
+    	assignSystemAdminRole(admin.getId());
+    }
+
+	private void ensureSystemAdminRole(AppUser admin) {
+		if(!hasSystemAdminRole(admin.getId())) {
+			assignSystemAdminRole(admin.getId());
+			
+			log.info(
+					"Added SYSTEM_ADMIN role to existing user '{}'.",
+																adminUsername
+			);
+			
+		}
+	}
+
+	private boolean hasSystemAdminRole(Long userId) {
+		
+		Boolean exists = jdbcTemplate.queryForObject(
+													"""
+													SELECT EXISTS (
+														SELECT 1
+														FROM arc.user_roles
+														WHERE user_id = ?
+														AND role_code = ?
+													)
+													""",
+													Boolean.class,
+													userId,
+													SYSTEM_ADMIN_ROLE
+		);
+		return Boolean.TRUE.equals(exists);
+	}
+	
+	private void assignSystemAdminRole(Long userId) {
+		jdbcTemplate.update(
+						"""
+						INSERT INTO arc.user_roles
+		                    (user_id, role_code, assigned_at)
+		                VALUES
+		                    (?, ?, CURRENT_TIMESTAMP)
+		                ON CONFLICT
+							(user_id, role_code)
+		                DO NOTHING
+						""",
+						userId,
+						SYSTEM_ADMIN_ROLE
+		);
+	}
 }

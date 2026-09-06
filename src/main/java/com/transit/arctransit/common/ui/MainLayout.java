@@ -2,7 +2,6 @@ package com.transit.arctransit.common.ui;
 
 import com.vaadin.flow.component.UI;
 import com.vaadin.flow.component.applayout.AppLayout;
-import com.vaadin.flow.component.applayout.DrawerToggle;
 import com.vaadin.flow.component.button.Button;
 import com.vaadin.flow.component.button.ButtonVariant;
 import com.vaadin.flow.component.html.H1;
@@ -10,124 +9,396 @@ import com.vaadin.flow.component.html.Span;
 import com.vaadin.flow.component.icon.VaadinIcon;
 import com.vaadin.flow.component.orderedlayout.FlexComponent;
 import com.vaadin.flow.component.orderedlayout.HorizontalLayout;
-import com.vaadin.flow.component.orderedlayout.VerticalLayout;
 import com.vaadin.flow.component.orderedlayout.Scroller;
+import com.vaadin.flow.component.orderedlayout.VerticalLayout;
 import com.vaadin.flow.component.sidenav.SideNav;
 import com.vaadin.flow.component.sidenav.SideNavItem;
-import com.vaadin.flow.component.textfield.TextField;
 import com.vaadin.flow.server.VaadinServletRequest;
 import com.vaadin.flow.theme.lumo.LumoUtility;
+
+import jakarta.annotation.security.PermitAll;
+
 import org.springframework.security.core.Authentication;
 import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.security.web.authentication.logout.SecurityContextLogoutHandler;
-import jakarta.annotation.security.PermitAll;
 
-/**
- * Main application layout serving as the app shell with header and sidebar navigation.
- */
+// main application shell
+
 @PermitAll
 public class MainLayout extends AppLayout {
 
+    // security authorities
+
+    private static final String SYSTEM_ADMIN_ROLE =
+            "ROLE_SYSTEM_ADMIN";
+
+    private static final String OPERATIONS_STAFF_ROLE =
+            "ROLE_OPERATIONS_STAFF";
+
+    // constructor
+
     public MainLayout() {
+
         createHeader();
         createDrawer();
     }
 
+    // application header
+
     private void createHeader() {
-        H1 logo = new H1("ARC TRANSIT SYSTEMS");
+
+        H1 logo =
+                new H1("ARC TRANSIT");
+
         logo.addClassNames(
                 LumoUtility.FontSize.LARGE,
-                LumoUtility.Margin.MEDIUM);
+                LumoUtility.Margin.MEDIUM
+        );
 
-        Span subtitle = new Span("Operations Control Center");
-        subtitle.addClassNames(LumoUtility.FontSize.SMALL, LumoUtility.TextColor.SECONDARY);
+        Span subtitle =
+                new Span(
+                        "Operations Control Center"
+                );
 
-        VerticalLayout titles = new VerticalLayout(logo, subtitle);
+        subtitle.addClassNames(
+                LumoUtility.FontSize.SMALL,
+                LumoUtility.TextColor.SECONDARY
+        );
+
+        VerticalLayout titles =
+                new VerticalLayout(
+                        logo,
+                        subtitle
+                );
+
         titles.setSpacing(false);
         titles.setPadding(false);
 
+        Span clock =
+                createClock();
 
+        HorizontalLayout left =
+                new HorizontalLayout(
+                        titles
+                );
 
-        // Live Clock using simple executeJs (HH:mm:ss a) format like "20:13:13 PM"
-        Span clockSpan = new Span();
-        clockSpan.setId("live-clock");
-        clockSpan.addClassNames(LumoUtility.FontWeight.BOLD, LumoUtility.Margin.Right.LARGE);
-        clockSpan.getStyle().set("white-space", "nowrap");
+        left.setWidthFull();
 
-        UI.getCurrent().getPage().executeJs(
-                "setInterval(function() {" +
-                        "  var d = new Date();" +
-                        "  var options = { weekday: 'short', month: 'short', day: 'numeric' };" +
-                        "  var dateStr = d.toLocaleDateString('en-US', options);" +
-                        "  var timeStr = d.toLocaleTimeString('en-US', { hour12: true, hour: '2-digit', minute: '2-digit', second: '2-digit' });" +
-                        "  document.getElementById('live-clock').innerText = dateStr + ' • ' + timeStr;" +
-                        "}, 1000);"
+        left.setDefaultVerticalComponentAlignment(
+                FlexComponent.Alignment.CENTER
         );
 
-        HorizontalLayout leftContainer = new HorizontalLayout(titles);
-        leftContainer.setDefaultVerticalComponentAlignment(FlexComponent.Alignment.CENTER);
-        leftContainer.setWidthFull();
+        HorizontalLayout center =
+                new HorizontalLayout();
 
-        HorizontalLayout centerContainer = new HorizontalLayout();
-        centerContainer.setJustifyContentMode(FlexComponent.JustifyContentMode.CENTER);
-        centerContainer.setWidthFull();
+        center.setWidthFull();
 
-        HorizontalLayout rightContainer = new HorizontalLayout(clockSpan);
-        rightContainer.setJustifyContentMode(FlexComponent.JustifyContentMode.END);
-        rightContainer.setDefaultVerticalComponentAlignment(FlexComponent.Alignment.CENTER);
-        rightContainer.setWidthFull();
-
-        HorizontalLayout header = new HorizontalLayout(
-                leftContainer,
-                centerContainer,
-                rightContainer
+        center.setJustifyContentMode(
+                FlexComponent.JustifyContentMode.CENTER
         );
 
-        header.setDefaultVerticalComponentAlignment(FlexComponent.Alignment.CENTER);
+        HorizontalLayout right =
+                new HorizontalLayout(
+                        clock
+                );
+
+        right.setWidthFull();
+
+        right.setJustifyContentMode(
+                FlexComponent.JustifyContentMode.END
+        );
+
+        right.setDefaultVerticalComponentAlignment(
+                FlexComponent.Alignment.CENTER
+        );
+
+        HorizontalLayout header =
+                new HorizontalLayout(
+                        left,
+                        center,
+                        right
+                );
+
         header.setWidthFull();
-        header.addClassNames(LumoUtility.Padding.Vertical.NONE, LumoUtility.Padding.Horizontal.MEDIUM);
+
+        header.setDefaultVerticalComponentAlignment(
+                FlexComponent.Alignment.CENTER
+        );
+
+        header.addClassNames(
+                LumoUtility.Padding.Vertical.NONE,
+                LumoUtility.Padding.Horizontal.MEDIUM
+        );
 
         addToNavbar(header);
-        
-        // Remove drawer toggle button to keep drawer permanently open
+
+        // keep the drawer permanently open
+
         setDrawerOpened(true);
     }
 
+    // live clock
+
+    private Span createClock() {
+
+        Span clock =
+                new Span();
+
+        clock.setId(
+                "live-clock"
+        );
+
+        clock.addClassNames(
+                LumoUtility.FontWeight.BOLD,
+                LumoUtility.Margin.Right.LARGE
+        );
+
+        clock.getStyle().set(
+                "white-space",
+                "nowrap"
+        );
+
+        UI.getCurrent()
+                .getPage()
+                .executeJs(
+                        """
+                        setInterval(function () {
+                            const element =
+                                document.getElementById('live-clock');
+
+                            if (!element) {
+                                return;
+                            }
+
+                            const now = new Date();
+
+                            const dateText =
+                                now.toLocaleDateString(
+                                    'en-US',
+                                    {
+                                        weekday: 'short',
+                                        month: 'short',
+                                        day: 'numeric'
+                                    }
+                                );
+
+                            const timeText =
+                                now.toLocaleTimeString(
+                                    'en-US',
+                                    {
+                                        hour12: true,
+                                        hour: '2-digit',
+                                        minute: '2-digit',
+                                        second: '2-digit'
+                                    }
+                                );
+
+                            element.innerText =
+                                dateText + ' • ' + timeText;
+                        }, 1000);
+                        """
+                );
+
+        return clock;
+    }
+
+    // application navigation drawer
+
     private void createDrawer() {
-        SideNav nav = new SideNav();
 
-        Authentication auth = SecurityContextHolder.getContext().getAuthentication();
-        boolean isAdmin = auth != null && auth.getAuthorities().stream().anyMatch(a -> a.getAuthority().equals("ROLE_SYSTEM_ADMIN"));
+        SideNav navigation =
+                new SideNav();
 
-        // Accessible to all staff
-        nav.addItem(new SideNavItem("Dashboard Overview", "", VaadinIcon.DASHBOARD.create()));
-        nav.addItem(new SideNavItem("Dispatch & Assignment", "dispatch", VaadinIcon.CLIPBOARD_CHECK.create()));
+        Authentication authentication =
+                SecurityContextHolder
+                        .getContext()
+                        .getAuthentication();
 
-        // Restricted exclusively to SYSTEM_ADMIN
-        if (isAdmin) {
-            nav.addItem(new SideNavItem("Live Fleet Monitor", "fleet", VaadinIcon.BUS.create()));
-            nav.addItem(new SideNavItem("Driver Management", "drivers", VaadinIcon.USER_CARD.create()));
-            nav.addItem(new SideNavItem("Route Schedule", "routes", VaadinIcon.MAP_MARKER.create()));
-            nav.addItem(new SideNavItem("Archived Data", "archive", VaadinIcon.ARCHIVE.create()));
-            nav.addItem(new SideNavItem("User Administration", "admin/users", VaadinIcon.USERS.create()));
+        boolean isAdmin =
+                hasAuthority(
+                        authentication,
+                        SYSTEM_ADMIN_ROLE
+                );
+
+        boolean isOperationsStaff =
+                hasAuthority(
+                        authentication,
+                        OPERATIONS_STAFF_ROLE
+                );
+
+        boolean isStaff =
+                isAdmin || isOperationsStaff;
+
+        // available to authenticated staff
+
+        if (isStaff) {
+
+            navigation.addItem(
+                    new SideNavItem(
+                            "Dashboard Overview",
+                            "",
+                            VaadinIcon.DASHBOARD.create()
+                    )
+            );
+
+            navigation.addItem(
+                    new SideNavItem(
+                            "Dispatch & Assignment",
+                            "dispatch",
+                            VaadinIcon.CLIPBOARD_CHECK.create()
+                    )
+            );
+
+            navigation.addItem(
+                    new SideNavItem(
+                            "Live Fleet Monitor",
+                            "fleet",
+                            VaadinIcon.BUS.create()
+                    )
+            );
+
+            navigation.addItem(
+                    new SideNavItem(
+                            "Driver Management",
+                            "drivers",
+                            VaadinIcon.USER_CARD.create()
+                    )
+            );
+
+            navigation.addItem(
+                    new SideNavItem(
+                            "Route Schedule",
+                            "routes",
+                            VaadinIcon.MAP_MARKER.create()
+                    )
+            );
         }
 
-        Scroller scroller = new Scroller(nav);
-        scroller.setClassName(LumoUtility.Padding.SMALL);
+        // system administrator only
 
-        // Logout Button at the bottom of the drawer
-        Button logoutBtn = new Button("Logout", VaadinIcon.SIGN_OUT.create(), click -> {
-            new SecurityContextLogoutHandler().logout(
-                    VaadinServletRequest.getCurrent().getHttpServletRequest(), null, null);
-            UI.getCurrent().getPage().setLocation("/");
-        });
-        logoutBtn.addThemeVariants(ButtonVariant.LUMO_TERTIARY, ButtonVariant.LUMO_ERROR);
-        logoutBtn.setWidthFull();
+        if (isAdmin) {
 
-        VerticalLayout drawerLayout = new VerticalLayout(scroller, logoutBtn);
-        drawerLayout.setSizeFull();
-        drawerLayout.setJustifyContentMode(FlexComponent.JustifyContentMode.BETWEEN);
+            navigation.addItem(
+                    new SideNavItem(
+                            "Incident Management",
+                            "incidents",
+                            VaadinIcon.WARNING.create()
+                    )
+            );
 
-        addToDrawer(drawerLayout);
+            navigation.addItem(
+                    new SideNavItem(
+                            "Maintenance Management",
+                            "maintenance",
+                            VaadinIcon.WRENCH.create()
+                    )
+            );
+
+            navigation.addItem(
+                    new SideNavItem(
+                            "Exception Queue",
+                            "exceptions",
+                            VaadinIcon.STETHOSCOPE.create()
+                    )
+            );
+
+            navigation.addItem(
+                    new SideNavItem(
+                            "Archived Data",
+                            "archive",
+                            VaadinIcon.ARCHIVE.create()
+                    )
+            );
+
+            navigation.addItem(
+                    new SideNavItem(
+                            "User Administration",
+                            "admin/users",
+                            VaadinIcon.USERS.create()
+                    )
+            );
+        }
+
+        Scroller scroller =
+                new Scroller(navigation);
+
+        scroller.setClassName(
+                LumoUtility.Padding.SMALL
+        );
+
+        // logout
+
+        Button logoutButton =
+                new Button(
+                        "Logout",
+                        VaadinIcon.SIGN_OUT.create(),
+                        event -> logout()
+                );
+
+        logoutButton.addThemeVariants(
+                ButtonVariant.LUMO_TERTIARY,
+                ButtonVariant.LUMO_ERROR
+        );
+
+        logoutButton.setWidthFull();
+
+        VerticalLayout drawer =
+                new VerticalLayout(
+                        scroller,
+                        logoutButton
+                );
+
+        drawer.setSizeFull();
+
+        drawer.setPadding(false);
+
+        drawer.setJustifyContentMode(
+                FlexComponent.JustifyContentMode.BETWEEN
+        );
+
+        addToDrawer(drawer);
+    }
+
+    // check security authority
+
+    private boolean hasAuthority(
+            Authentication authentication,
+            String authority) {
+
+        if (authentication == null
+                || !authentication.isAuthenticated()) {
+
+            return false;
+        }
+
+        return authentication
+                .getAuthorities()
+                .stream()
+                .anyMatch(grantedAuthority ->
+                        authority.equals(
+                                grantedAuthority.getAuthority()
+                        )
+                );
+    }
+
+    // logout
+
+    private void logout() {
+
+        var request =
+                VaadinServletRequest
+                        .getCurrent()
+                        .getHttpServletRequest();
+
+        new SecurityContextLogoutHandler()
+                .logout(
+                        request,
+                        null,
+                        null
+                );
+
+        UI.getCurrent()
+                .getPage()
+                .setLocation("/login");
     }
 }

@@ -1,12 +1,8 @@
 package com.transit.arctransit.dispatch;
 
-/**
- * Immutable view of a dispatch assignment for frontend consumption.
- *
- * Contains resolved display names for fleet unit, driver, and route
- * (not just IDs) so the Vaadin view can display human-readable labels.
- */
+// resolved dispatch assignment view
 public record DispatchAssignmentView(
+
         Long id,
         String dispatchDate,
         Long fleetUnitId,
@@ -17,4 +13,6 @@ public record DispatchAssignmentView(
         String routeCode,
         String scheduledDeparture,
         String dispatchStatus
-) {}
+
+) {
+}

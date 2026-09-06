@@ -5,9 +5,7 @@ import jakarta.validation.constraints.NotNull;
 
 import java.time.LocalDate;
 
-/**
- * Command to register a new driver.
- */
+// to register a new driver
 public record CreateDriverCommand(
         @NotBlank(message = "Employee number cannot be blank") String employeeNumber,
         @NotBlank(message = "First name cannot be blank") String firstName,

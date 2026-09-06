@@ -1,10 +1,14 @@
-/*
-maintenance module.
+// maintenance module
 
-Owns scheduled and corrective maintenance work
-affecting fleet-unit availability.
+// owns scheduled and corrective maintenance work
+// depends on Fleet, Audit, and Common
 
- */
-
-@org.springframework.modulith.ApplicationModule(displayName = "Maintenance")
+@org.springframework.modulith.ApplicationModule(
+        displayName = "Maintenance",
+        allowedDependencies = {
+                "fleet",
+                "audit",
+                "common"
+        }
+)
 package com.transit.arctransit.maintenance;

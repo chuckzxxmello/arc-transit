@@ -1,22 +1,14 @@
 package com.transit.arctransit.auth.domain;
 
-/**
- * Administrative authentication state of a staff account.
- */
+// Administrative authentication state of a staff account.
 public enum AccountStatus {
 
-    /**
-     * The account may authenticate when it is not archived.
-     */
+    // The account may authenticate when it is not archived.
     ACTIVE,
 
-    /**
-     * The account has been administratively disabled.
-     */
+    // The account has been administratively disabled.
     DISABLED,
 
-    /**
-     * The account is enabled but temporarily or manually locked.
-     */
+    // The account is enabled but temporarily or manually locked.
     LOCKED
 }

@@ -14,40 +14,78 @@ import com.vaadin.flow.router.ErrorParameter;
 import com.vaadin.flow.router.HasErrorParameter;
 import com.vaadin.flow.router.PageTitle;
 import com.vaadin.flow.router.ParentLayout;
+
 import jakarta.annotation.security.PermitAll;
 import jakarta.servlet.http.HttpServletResponse;
 
-/**
- * Custom error view rendered when an unauthorized user (e.g. OPERATIONS_STAFF)
- * attempts to access a restricted page (e.g. /admin/users, /fleet, /archive).
- */
+// common access denied view
+
 @ParentLayout(MainLayout.class)
 @PageTitle("Access Denied — Arc Transit")
 @PermitAll
-public class CustomAccessDeniedView extends VerticalLayout implements HasErrorParameter<AccessDeniedException> {
+public class CustomAccessDeniedView
+        extends VerticalLayout
+        implements HasErrorParameter<AccessDeniedException> {
 
     public CustomAccessDeniedView() {
-        setSizeFull();
-        setJustifyContentMode(FlexComponent.JustifyContentMode.CENTER);
-        setDefaultHorizontalComponentAlignment(FlexComponent.Alignment.CENTER);
 
-        H1 title = new H1("Access Denied");
-        title.getStyle().set("color", "#d32f2f").set("margin-bottom", "0.5rem");
+        configureLayout();
 
-        Paragraph message = new Paragraph("You do not have permission to access this page. Access is restricted to System Administrators.");
-        message.getStyle().set("color", "#555").set("font-size", "1.1rem");
+        H1 title =
+                new H1("Access Denied");
 
-        Button backButton = new Button("Go Back to Dashboard", VaadinIcon.HOME.create(), click -> {
-            UI.getCurrent().navigate("");
-        });
-        backButton.addThemeVariants(ButtonVariant.LUMO_PRIMARY);
-        backButton.getStyle().set("margin-top", "1.5rem");
+        Paragraph message =
+                new Paragraph(
+                        "You do not have permission "
+                                + "to access this page."
+                );
 
-        add(title, message, backButton);
+        message.getStyle()
+                .set("max-width", "500px")
+                .set("text-align", "center");
+
+        Button backButton =
+                new Button(
+                        "Go Back to Dashboard",
+                        VaadinIcon.HOME.create(),
+                        event ->
+                                UI.getCurrent()
+                                        .navigate("")
+                );
+
+        backButton.addThemeVariants(
+                ButtonVariant.LUMO_PRIMARY
+        );
+
+        add(
+                title,
+                message,
+                backButton
+        );
     }
 
+    // configure page layout
+
+    private void configureLayout() {
+
+        setSizeFull();
+
+        setJustifyContentMode(
+                FlexComponent.JustifyContentMode.CENTER
+        );
+
+        setDefaultHorizontalComponentAlignment(
+                FlexComponent.Alignment.CENTER
+        );
+    }
+
+    // return HTTP 403
+
     @Override
-    public int setErrorParameter(BeforeEnterEvent event, ErrorParameter<AccessDeniedException> parameter) {
+    public int setErrorParameter(
+            BeforeEnterEvent event,
+            ErrorParameter<AccessDeniedException> parameter) {
+
         return HttpServletResponse.SC_FORBIDDEN;
     }
 }

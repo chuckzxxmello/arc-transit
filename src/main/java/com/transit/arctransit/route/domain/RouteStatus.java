@@ -1,16 +1,11 @@
 package com.transit.arctransit.route.domain;
 
-/**
- * Operational lifecycle state of a route.
- *
- * Matches the database check constraint ck_routes_route_status
- * in V4__create_routes_and_stops.sql.
- */
+// operational status of a route
 public enum RouteStatus {
 
-    /** The route is available for dispatch assignments. */
+    // route is available for dispatch
     ACTIVE,
 
-    /** The route exists but is not currently operated. */
+    // route exists but is not currently operational
     INACTIVE
 }

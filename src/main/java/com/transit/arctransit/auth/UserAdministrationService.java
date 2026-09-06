@@ -4,44 +4,29 @@ import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import jakarta.validation.Valid;
 
-/**
- * Public application service contract for User Administration.
- * Forms the boundary between Vaadin views and the Auth module internals.
- */
+// public
+// app_service contract for user admin
+
 public interface UserAdministrationService {
 
-    /**
-     * Reads the current authenticated session principal.
-     */
+    // checks current auth session
     CurrentUserView currentUser();
 
-    /**
-     * Searches users for management list views.
-     */
+    // search users for management list view
     Page<UserSummaryView> searchUsers(UserQuery query, Pageable pageable);
 
-    /**
-     * Creates a new staff account.
-     */
+    // create new user account
     UserView createUser(@Valid CreateUserCommand command);
 
-    /**
-     * Changes an account's operational status (e.g., ACTIVE, DISABLED, LOCKED).
-     */
+    // change user operational status (e.g., ACTIVE, DISABLED, LOCKED).
     UserView changeAccountStatus(@Valid ChangeAccountStatusCommand command);
 
-    /**
-     * Replaces the roles assigned to a user.
-     */
+    // replace user role
     UserView replaceRoles(@Valid ReplaceUserRolesCommand command);
 
-    /**
-     * Resets a user's password.
-     */
+    // Reset user password
     void resetPassword(String username, String newPassword);
 
-    /**
-     * Deletes a staff account permanently.
-     */
+    // delete user account
     void deleteUser(String username);
 }

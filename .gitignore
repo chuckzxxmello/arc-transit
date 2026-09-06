@@ -54,3 +54,4 @@ build/
 ### Operating system ###
 .DS_Store
 Thumbs.db
+/bin/

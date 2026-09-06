@@ -1,10 +1,4 @@
-/*
-driver module.
- 
-Owns driver identity, license, employment,
-and availability information.
-
- */
+// driver module
 
 @org.springframework.modulith.ApplicationModule(
         displayName = "Driver Management",

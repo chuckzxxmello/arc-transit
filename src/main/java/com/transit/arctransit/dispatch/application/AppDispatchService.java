@@ -1,71 +1,82 @@
 package com.transit.arctransit.dispatch.application;
 
-import com.transit.arctransit.audit.AuditRecordingService;
-import com.transit.arctransit.common.exception.BusinessConflictException;
-import com.transit.arctransit.common.exception.CommandValidationException;
-import com.transit.arctransit.common.exception.ResourceNotFoundException;
-import com.transit.arctransit.dispatch.*;
+// dispatch module
+import com.transit.arctransit.dispatch.CreateDispatchCommand;
+import com.transit.arctransit.dispatch.DispatchAssignmentView;
+import com.transit.arctransit.dispatch.DispatchQuery;
+import com.transit.arctransit.dispatch.DispatchService;
+
+// dispatch domain
 import com.transit.arctransit.dispatch.domain.DispatchAssignment;
 import com.transit.arctransit.dispatch.domain.DispatchAssignmentRepository;
 import com.transit.arctransit.dispatch.domain.DispatchStatus;
-import com.transit.arctransit.driver.DriverManagementService;
-import com.transit.arctransit.driver.DriverView;
+
+// fleet module
 import com.transit.arctransit.fleet.FleetManagementService;
 import com.transit.arctransit.fleet.FleetUnitView;
+
+// driver module
+import com.transit.arctransit.driver.DriverManagementService;
+import com.transit.arctransit.driver.DriverView;
+
+// route module
 import com.transit.arctransit.route.RouteManagementService;
 import com.transit.arctransit.route.RouteView;
-import jakarta.validation.Valid;
+
+// audit
+import com.transit.arctransit.audit.AuditRecordingService;
+
+// common exceptions
+import com.transit.arctransit.common.exception.BusinessConflictException;
+import com.transit.arctransit.common.exception.CommandValidationException;
+import com.transit.arctransit.common.exception.ResourceNotFoundException;
+
+// java
+import java.util.List;
+
+// spring
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
+
 import org.springframework.security.access.prepost.PreAuthorize;
+
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
-import java.util.List;
 
-/**
- * Internal implementation of DispatchService.
- *
- * Cross-module validation pattern:
- * This service calls the public service interfaces of Fleet, Driver,
- * and Route modules to validate that referenced entities exist and
- * meet business rules. It does NOT directly access their internal
- * JPA repositories, respecting Spring Modulith module boundaries.
- *
- * Source: https://docs.spring.io/spring-modulith/reference/fundamentals.html
- * (Ctrl+F: "allowedDependencies")
- *
- * Overlap detection:
- * Uses the DispatchAssignmentRepository to find existing non-cancelled
- * assignments for the same bus or driver on the same date. If any
- * overlap is found, a BusinessConflictException is thrown.
- *
- * The database also enforces this through partial unique indexes
- * (ux_dispatch_fleet_unit_schedule, ux_dispatch_driver_schedule)
- * as a final safety boundary.
- * Source: https://www.postgresql.org/docs/17/indexes-partial.html
- */
+
+// dispatch application service
 @Service
 @Transactional
-public class AppDispatchService implements DispatchService {
+public class AppDispatchService
+        implements DispatchService {
 
+    // constants
+    private static final Logger log = LoggerFactory.getLogger(
+                    AppDispatchService.class
+            );
+
+    private static final String CANCELLED_STATUS = DispatchStatus.CANCELLED.name();
+    private static final String ACTIVE_STATUS = "ACTIVE";
+
+    // dependencies
     private final DispatchAssignmentRepository assignmentRepository;
     private final FleetManagementService fleetService;
     private final DriverManagementService driverService;
     private final RouteManagementService routeService;
     private final AuditRecordingService auditService;
 
-    /**
-     * Constructor injection of cross-module service interfaces.
-     *
-     * Spring Modulith allows this because dispatch/package-info.java
-     * declares allowedDependencies = {"fleet", "driver", "route", "common"}.
-     */
-    public AppDispatchService(DispatchAssignmentRepository assignmentRepository,
-                              FleetManagementService fleetService,
-                              DriverManagementService driverService,
-                              RouteManagementService routeService,
-                              AuditRecordingService auditService) {
+    // constructor
+    public AppDispatchService(
+            DispatchAssignmentRepository assignmentRepository,
+            FleetManagementService fleetService,
+            DriverManagementService driverService,
+            RouteManagementService routeService,
+            AuditRecordingService auditService) {
+
         this.assignmentRepository = assignmentRepository;
         this.fleetService = fleetService;
         this.driverService = driverService;
@@ -73,204 +84,535 @@ public class AppDispatchService implements DispatchService {
         this.auditService = auditService;
     }
 
+    // create assignment
     @Override
-    @PreAuthorize("hasRole('SYSTEM_ADMIN') or hasRole('OPERATIONS_STAFF')")
-    public DispatchAssignmentView createAssignment(@Valid CreateDispatchCommand command) {
-        /*
-         * Step 1: Validate fleet unit exists and is ACTIVE.
-         */
-        FleetUnitView fleetUnit = fleetService.getUnit(command.fleetUnitId());
-        if (!"ACTIVE".equals(fleetUnit.operationalStatus())) {
-            throw new CommandValidationException(
-                    "Fleet unit " + fleetUnit.unitNumber() + " is not ACTIVE (current: " +
-                            fleetUnit.operationalStatus() + ")");
-        }
+    @PreAuthorize(
+            "hasRole('SYSTEM_ADMIN') or hasRole('OPERATIONS_STAFF')"
+    )
+    public DispatchAssignmentView createAssignment(
+            CreateDispatchCommand command) {
 
-        /*
-         * Step 2: Validate driver exists, is ACTIVE, and has a valid license.
-         */
-        DriverView driver = driverService.getDriver(command.driverId());
-        if (!"ACTIVE".equals(driver.employmentStatus())) {
-            throw new CommandValidationException(
-                    "Driver " + driver.firstName() + " " + driver.lastName() +
-                            " is not ACTIVE (current: " + driver.employmentStatus() + ")");
-        }
-        if (driver.licenseExpired()) {
-            throw new CommandValidationException(
-                    "Driver " + driver.firstName() + " " + driver.lastName() +
-                            " has an expired license (expired: " + driver.licenseExpiryDate() + ")");
-        }
+        FleetUnitView fleetUnit =
+                validateFleetUnit(
+                        command.fleetUnitId()
+                );
 
-        /*
-         * Step 3: Validate route exists and is ACTIVE.
-         */
-        RouteView route = routeService.getRoute(command.routeId());
-        if (!"ACTIVE".equals(route.routeStatus())) {
-            throw new CommandValidationException(
-                    "Route " + route.routeCode() + " is not ACTIVE (current: " +
-                            route.routeStatus() + ")");
-        }
+        DriverView driver =
+                validateDriver(
+                        command.driverId()
+                );
 
-        /*
-         * Step 4: Check for overlapping bus assignments on the same date.
-         */
-        List<DispatchAssignment> busConflicts = assignmentRepository
-                .findByFleetUnitIdAndDispatchDateAndDispatchStatusNot(
-                        command.fleetUnitId(), command.dispatchDate(), DispatchStatus.CANCELLED);
-        if (!busConflicts.isEmpty()) {
-            throw new BusinessConflictException(
-                    "Fleet unit " + fleetUnit.unitNumber() +
-                            " already has an assignment on " + command.dispatchDate());
-        }
+        RouteView route =
+                validateRoute(
+                        command.routeId()
+                );
 
-        /*
-         * Step 5: Check for overlapping driver assignments on the same date.
-         */
-        List<DispatchAssignment> driverConflicts = assignmentRepository
-                .findByDriverIdAndDispatchDateAndDispatchStatusNot(
-                        command.driverId(), command.dispatchDate(), DispatchStatus.CANCELLED);
-        if (!driverConflicts.isEmpty()) {
-            throw new BusinessConflictException(
-                    "Driver " + driver.firstName() + " " + driver.lastName() +
-                            " already has an assignment on " + command.dispatchDate());
-        }
+        validateFleetScheduleConflict(
+                command,
+                fleetUnit
+        );
 
-        /*
-         * Step 6: Create and save the assignment.
-         */
-        DispatchAssignment assignment = new DispatchAssignment(
-                command.fleetUnitId(),
-                command.driverId(),
-                command.routeId(),
-                command.dispatchDate(),
-                command.scheduledDeparture(),
-                command.scheduledArrival(),
-                command.notes());
+        validateDriverScheduleConflict(
+                command,
+                driver
+        );
 
-        DispatchAssignment saved = assignmentRepository.save(assignment);
-        auditService.recordAction("DISPATCH_ASSIGNED", "DispatchAssignment", saved.getId(), 
-                String.format("Assigned Bus %d to Driver %d on Route %d", command.fleetUnitId(), command.driverId(), command.routeId()));
+        DispatchAssignment assignment =
+                new DispatchAssignment(
+                        command.fleetUnitId(),
+                        command.driverId(),
+                        command.routeId(),
+                        command.dispatchDate(),
+                        command.scheduledDeparture(),
+                        command.scheduledArrival(),
+                        normalizeNotes(
+                                command.notes()
+                        )
+                );
+
+        DispatchAssignment saved =
+                assignmentRepository.save(
+                        assignment
+                );
+
+        auditService.recordAction(
+                "DISPATCH_ASSIGNED",
+                "DispatchAssignment",
+                saved.getId(),
+                "Assigned Bus "
+                        + command.fleetUnitId()
+                        + " to Driver "
+                        + command.driverId()
+                        + " on Route "
+                        + command.routeId()
+        );
+
+        log.info(
+                "Created dispatch assignment {}.",
+                saved.getId()
+        );
+
         return resolveView(saved);
     }
 
+    // validate fleet unit
+    private FleetUnitView validateFleetUnit(
+            Long fleetUnitId) {
+
+        FleetUnitView fleetUnit =
+                fleetService.getUnit(
+                        fleetUnitId
+                );
+
+        if (!ACTIVE_STATUS.equals(
+                fleetUnit.operationalStatus()
+        )) {
+
+            throw new CommandValidationException(
+                    "Fleet unit "
+                            + fleetUnit.unitNumber()
+                            + " is not ACTIVE (current: "
+                            + fleetUnit.operationalStatus()
+                            + ")"
+            );
+        }
+
+        return fleetUnit;
+    }
+
+    // validate driver
+    private DriverView validateDriver(
+            Long driverId) {
+
+        DriverView driver =
+                driverService.getDriver(
+                        driverId
+                );
+
+        if (!ACTIVE_STATUS.equals(
+                driver.employmentStatus()
+        )) {
+
+            throw new CommandValidationException(
+                    "Driver "
+                            + driver.firstName()
+                            + " "
+                            + driver.lastName()
+                            + " is not ACTIVE (current: "
+                            + driver.employmentStatus()
+                            + ")"
+            );
+        }
+
+        if (driver.licenseExpired()) {
+
+            throw new CommandValidationException(
+                    "Driver "
+                            + driver.firstName()
+                            + " "
+                            + driver.lastName()
+                            + " has an expired license (expired: "
+                            + driver.licenseExpiryDate()
+                            + ")"
+            );
+        }
+
+        return driver;
+    }
+
+    // validate route
+    private RouteView validateRoute(
+            Long routeId) {
+
+        RouteView route =
+                routeService.getRoute(
+                        routeId
+                );
+
+        if (!ACTIVE_STATUS.equals(
+                route.routeStatus()
+        )) {
+
+            throw new CommandValidationException(
+                    "Route "
+                            + route.routeCode()
+                            + " is not ACTIVE (current: "
+                            + route.routeStatus()
+                            + ")"
+            );
+        }
+
+        return route;
+    }
+
+    // validate fleet scheduling conflict
+    private void validateFleetScheduleConflict(
+            CreateDispatchCommand command,
+            FleetUnitView fleetUnit) {
+
+        List<DispatchAssignment> conflicts =
+                assignmentRepository
+                        .findByFleetUnitIdAndDispatchDateAndDispatchStatusNot(
+                                command.fleetUnitId(),
+                                command.dispatchDate(),
+                                DispatchStatus.CANCELLED
+                        );
+
+        if (!conflicts.isEmpty()) {
+
+            throw new BusinessConflictException(
+                    "Fleet unit "
+                            + fleetUnit.unitNumber()
+                            + " already has an assignment on "
+                            + command.dispatchDate()
+            );
+        }
+    }
+
+    // validate driver scheduling conflict
+    private void validateDriverScheduleConflict(
+            CreateDispatchCommand command,
+            DriverView driver) {
+
+        List<DispatchAssignment> conflicts =
+                assignmentRepository
+                        .findByDriverIdAndDispatchDateAndDispatchStatusNot(
+                                command.driverId(),
+                                command.dispatchDate(),
+                                DispatchStatus.CANCELLED
+                        );
+
+        if (!conflicts.isEmpty()) {
+
+            throw new BusinessConflictException(
+                    "Driver "
+                            + driver.firstName()
+                            + " "
+                            + driver.lastName()
+                            + " already has an assignment on "
+                            + command.dispatchDate()
+            );
+        }
+    }
+
+    // start trip
     @Override
-    @PreAuthorize("hasRole('SYSTEM_ADMIN') or hasRole('OPERATIONS_STAFF')")
-    public DispatchAssignmentView startTrip(Long assignmentId) {
-        DispatchAssignment assignment = findAssignment(assignmentId);
+    @PreAuthorize(
+            "hasRole('SYSTEM_ADMIN') or hasRole('OPERATIONS_STAFF')"
+    )
+    public DispatchAssignmentView startTrip(
+            Long assignmentId) {
+
+        DispatchAssignment assignment =
+                findAssignment(assignmentId);
+
         assignment.startTrip();
-        auditService.recordAction("DISPATCH_STARTED", "DispatchAssignment", assignment.getId(), "Started trip");
+
+        auditService.recordAction(
+                "DISPATCH_STARTED",
+                "DispatchAssignment",
+                assignment.getId(),
+                "Started dispatch trip"
+        );
+
+        log.info(
+                "Started dispatch assignment {}.",
+                assignmentId
+        );
+
         return resolveView(assignment);
     }
 
+    // complete trip
     @Override
-    @PreAuthorize("hasRole('SYSTEM_ADMIN') or hasRole('OPERATIONS_STAFF')")
-    public DispatchAssignmentView completeTrip(Long assignmentId) {
-        DispatchAssignment assignment = findAssignment(assignmentId);
+    @PreAuthorize(
+            "hasRole('SYSTEM_ADMIN') or hasRole('OPERATIONS_STAFF')"
+    )
+    public DispatchAssignmentView completeTrip(
+            Long assignmentId) {
+
+        DispatchAssignment assignment =
+                findAssignment(assignmentId);
+
         assignment.completeTrip();
-        auditService.recordAction("DISPATCH_COMPLETED", "DispatchAssignment", assignment.getId(), "Completed trip");
+
+        auditService.recordAction(
+                "DISPATCH_COMPLETED",
+                "DispatchAssignment",
+                assignment.getId(),
+                "Completed dispatch trip"
+        );
+
+        log.info(
+                "Completed dispatch assignment {}.",
+                assignmentId
+        );
+
         return resolveView(assignment);
     }
 
+    // cancel assignment
     @Override
-    @PreAuthorize("hasRole('SYSTEM_ADMIN') or hasRole('OPERATIONS_STAFF')")
-    public DispatchAssignmentView cancelAssignment(Long assignmentId) {
-        DispatchAssignment assignment = findAssignment(assignmentId);
+    @PreAuthorize(
+            "hasRole('SYSTEM_ADMIN') or hasRole('OPERATIONS_STAFF')"
+    )
+    public DispatchAssignmentView cancelAssignment(
+            Long assignmentId) {
+
+        DispatchAssignment assignment =
+                findAssignment(assignmentId);
+
         assignment.cancel();
-        auditService.recordAction("DISPATCH_CANCELLED", "DispatchAssignment", assignment.getId(), "Cancelled trip");
+
+        auditService.recordAction(
+                "DISPATCH_CANCELLED",
+                "DispatchAssignment",
+                assignment.getId(),
+                "Cancelled dispatch assignment"
+        );
+
+        log.info(
+                "Cancelled dispatch assignment {}.",
+                assignmentId
+        );
+
         return resolveView(assignment);
     }
 
+    // search active assignments
     @Override
     @Transactional(readOnly = true)
-    @PreAuthorize("hasRole('SYSTEM_ADMIN') or hasRole('OPERATIONS_STAFF')")
-    public Page<DispatchAssignmentView> searchAssignments(DispatchQuery query, Pageable pageable) {
-        return assignmentRepository.findByArchivedAtIsNull(pageable)
+    @PreAuthorize(
+            "hasRole('SYSTEM_ADMIN') or hasRole('OPERATIONS_STAFF')"
+    )
+    public Page<DispatchAssignmentView> searchAssignments(
+            DispatchQuery query,
+            Pageable pageable) {
+
+        return assignmentRepository
+                .findByArchivedAtIsNull(pageable)
                 .map(this::resolveView);
     }
 
+    // completed trip count
     @Override
     @Transactional(readOnly = true)
-    @PreAuthorize("hasRole('SYSTEM_ADMIN') or hasRole('OPERATIONS_STAFF')")
+    @PreAuthorize(
+            "hasRole('SYSTEM_ADMIN') or hasRole('OPERATIONS_STAFF')"
+    )
     public long countCompletedTrips() {
-        return assignmentRepository.countByDispatchStatusAndArchivedAtIsNull(DispatchStatus.COMPLETED);
+
+        return assignmentRepository
+                .countByDispatchStatusAndArchivedAtIsNull(
+                        DispatchStatus.COMPLETED
+                );
     }
 
+    // archive assignment
     @Override
     @PreAuthorize("hasRole('SYSTEM_ADMIN')")
-    public void archiveAssignment(Long id) {
-        DispatchAssignment assignment = findAssignment(id);
-        if (assignment.getDispatchStatus() == DispatchStatus.SCHEDULED || 
-            assignment.getDispatchStatus() == DispatchStatus.IN_PROGRESS) {
-            throw new CommandValidationException("Cannot archive an active assignment.");
+    public void archiveAssignment(
+            Long id) {
+
+        DispatchAssignment assignment =
+                findAssignment(id);
+
+        if (assignment.getDispatchStatus()
+                == DispatchStatus.SCHEDULED
+                || assignment.getDispatchStatus()
+                == DispatchStatus.IN_PROGRESS) {
+
+            throw new CommandValidationException(
+                    "Cannot archive an active assignment."
+            );
         }
+
         assignment.archive();
-        auditService.recordAction("DISPATCH_ARCHIVED", "DispatchAssignment", assignment.getId(), "Archived dispatch assignment");
+
+        auditService.recordAction(
+                "DISPATCH_ARCHIVED",
+                "DispatchAssignment",
+                id,
+                "Archived dispatch assignment"
+        );
+
+        log.info(
+                "Archived dispatch assignment {}.",
+                id
+        );
     }
 
+    // unarchive assignment
     @Override
     @PreAuthorize("hasRole('SYSTEM_ADMIN')")
-    public void unarchiveAssignment(Long id) {
-        DispatchAssignment assignment = findAssignment(id);
+    public void unarchiveAssignment(
+            Long id) {
+
+        DispatchAssignment assignment =
+                findAssignment(id);
+
         assignment.unarchive();
-        auditService.recordAction("DISPATCH_UNARCHIVED", "DispatchAssignment", assignment.getId(), "Unarchived dispatch assignment");
+
+        auditService.recordAction(
+                "DISPATCH_UNARCHIVED",
+                "DispatchAssignment",
+                id,
+                "Unarchived dispatch assignment"
+        );
+
+        log.info(
+                "Unarchived dispatch assignment {}.",
+                id
+        );
     }
 
+    // search archived assignments
     @Override
     @Transactional(readOnly = true)
-    @PreAuthorize("hasRole('SYSTEM_ADMIN') or hasRole('OPERATIONS_STAFF')")
-    public Page<DispatchAssignmentView> searchArchivedAssignments(Pageable pageable) {
-        return assignmentRepository.findByArchivedAtIsNotNull(pageable)
+    @PreAuthorize(
+            "hasRole('SYSTEM_ADMIN') or hasRole('OPERATIONS_STAFF')"
+    )
+    public Page<DispatchAssignmentView>
+    searchArchivedAssignments(
+            Pageable pageable) {
+
+        return assignmentRepository
+                .findByArchivedAtIsNotNull(pageable)
                 .map(this::resolveView);
     }
 
-    // --- Helpers ---
+    // find assignment
+    private DispatchAssignment findAssignment(
+            Long id) {
 
-    private DispatchAssignment findAssignment(Long id) {
-        return assignmentRepository.findById(id)
-                .orElseThrow(() -> new ResourceNotFoundException("Dispatch assignment not found: " + id));
+        return assignmentRepository
+                .findById(id)
+                .orElseThrow(() ->
+                        new ResourceNotFoundException(
+                                "Dispatch assignment not found: "
+                                        + id
+                        )
+                );
     }
 
-    /**
-     * Resolves cross-module display names by calling each module's public service.
-     */
-    private DispatchAssignmentView resolveView(DispatchAssignment assignment) {
-        String unitNumber;
-        try {
-            unitNumber = fleetService.getUnit(assignment.getFleetUnitId()).unitNumber();
-        } catch (ResourceNotFoundException e) {
-            unitNumber = "UNKNOWN-" + assignment.getFleetUnitId();
-        }
+    // resolve cross-module display values
+    private DispatchAssignmentView resolveView(
+            DispatchAssignment assignment) {
 
-        String driverName;
-        try {
-            DriverView driver = driverService.getDriver(assignment.getDriverId());
-            driverName = driver.firstName() + " " + driver.lastName();
-        } catch (ResourceNotFoundException e) {
-            driverName = "UNKNOWN-" + assignment.getDriverId();
-        }
+        String fleetUnitNumber =
+                resolveFleetUnitNumber(
+                        assignment.getFleetUnitId()
+                );
 
-        String routeCode;
-        try {
-            routeCode = routeService.getRoute(assignment.getRouteId()).routeCode();
-        } catch (ResourceNotFoundException e) {
-            routeCode = "UNKNOWN-" + assignment.getRouteId();
-        }
+        String driverName =
+                resolveDriverName(
+                        assignment.getDriverId()
+                );
 
-        return toView(assignment, unitNumber, driverName, routeCode);
+        String routeCode =
+                resolveRouteCode(
+                        assignment.getRouteId()
+                );
+
+        return toView(
+                assignment,
+                fleetUnitNumber,
+                driverName,
+                routeCode
+        );
     }
 
-    private DispatchAssignmentView toView(DispatchAssignment assignment,
-            String unitNumber, String driverName, String routeCode) {
+    // resolve fleet unit display name
+    private String resolveFleetUnitNumber(
+            Long fleetUnitId) {
+
+        try {
+
+            return fleetService
+                    .getUnit(fleetUnitId)
+                    .unitNumber();
+
+        } catch (ResourceNotFoundException exception) {
+
+            return "UNKNOWN-" + fleetUnitId;
+        }
+    }
+
+    // resolve driver display name
+    private String resolveDriverName(
+            Long driverId) {
+
+        try {
+
+            DriverView driver =
+                    driverService.getDriver(
+                            driverId
+                    );
+
+            return driver.firstName()
+                    + " "
+                    + driver.lastName();
+
+        } catch (ResourceNotFoundException exception) {
+
+            return "UNKNOWN-" + driverId;
+        }
+    }
+
+    // resolve route display code
+    private String resolveRouteCode(
+            Long routeId) {
+
+        try {
+
+            return routeService
+                    .getRoute(routeId)
+                    .routeCode();
+
+        } catch (ResourceNotFoundException exception) {
+
+            return "UNKNOWN-" + routeId;
+        }
+    }
+
+    // map entity to view
+    private DispatchAssignmentView toView(
+            DispatchAssignment assignment,
+            String fleetUnitNumber,
+            String driverName,
+            String routeCode) {
+
         return new DispatchAssignmentView(
                 assignment.getId(),
                 assignment.getDispatchDate().toString(),
                 assignment.getFleetUnitId(),
-                unitNumber,
+                fleetUnitNumber,
                 assignment.getDriverId(),
                 driverName,
                 assignment.getRouteId(),
                 routeCode,
-                assignment.getScheduledDeparture().toString(),
-                assignment.getDispatchStatus().name());
+                assignment
+                        .getScheduledDeparture()
+                        .toString(),
+                assignment
+                        .getDispatchStatus()
+                        .name()
+        );
+    }
+
+    // normalize notes
+    private static String normalizeNotes(
+            String value) {
+
+        if (value == null) {
+            return null;
+        }
+
+        String normalized =
+                value.trim();
+
+        return normalized.isBlank()
+                ? null
+                : normalized;
     }
 }

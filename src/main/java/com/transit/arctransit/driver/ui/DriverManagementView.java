@@ -1,305 +1,993 @@
 package com.transit.arctransit.driver.ui;
 
-import com.transit.arctransit.driver.*;
+// driver module
+
+import com.transit.arctransit.driver.CreateDriverCommand;
+import com.transit.arctransit.driver.DriverManagementService;
+import com.transit.arctransit.driver.DriverQuery;
+import com.transit.arctransit.driver.DriverSummaryView;
+import com.transit.arctransit.driver.DriverView;
+import com.transit.arctransit.driver.UpdateDriverCommand;
+
+// common UI
+
+import com.transit.arctransit.common.ui.MainLayout;
+
+// vaadin
+
+import com.vaadin.flow.component.html.Div;
 import com.vaadin.flow.component.button.Button;
 import com.vaadin.flow.component.button.ButtonVariant;
 import com.vaadin.flow.component.combobox.ComboBox;
+import com.vaadin.flow.component.confirmdialog.ConfirmDialog;
 import com.vaadin.flow.component.datepicker.DatePicker;
 import com.vaadin.flow.component.dialog.Dialog;
 import com.vaadin.flow.component.formlayout.FormLayout;
 import com.vaadin.flow.component.grid.Grid;
 import com.vaadin.flow.component.html.H2;
+import com.vaadin.flow.component.html.H3;
+import com.vaadin.flow.component.html.Paragraph;
 import com.vaadin.flow.component.html.Span;
+import com.vaadin.flow.component.icon.VaadinIcon;
 import com.vaadin.flow.component.notification.Notification;
 import com.vaadin.flow.component.notification.NotificationVariant;
+import com.vaadin.flow.component.orderedlayout.FlexComponent;
 import com.vaadin.flow.component.orderedlayout.HorizontalLayout;
 import com.vaadin.flow.component.orderedlayout.VerticalLayout;
+import com.vaadin.flow.component.splitlayout.SplitLayout;
+import com.vaadin.flow.component.textfield.PasswordField;
 import com.vaadin.flow.component.textfield.TextField;
+import com.vaadin.flow.data.value.ValueChangeMode;
 import com.vaadin.flow.router.PageTitle;
 import com.vaadin.flow.router.Route;
+
+// security
+
 import jakarta.annotation.security.RolesAllowed;
+
+// spring
+
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
 import org.springframework.data.domain.PageRequest;
-import com.transit.arctransit.common.ui.MainLayout;
+
+// java
+
+import java.time.LocalDate;
+import java.util.List;
 
 /**
- * Driver Management CRUD view for System Administrators.
+ * Driver Management dashboard.
  *
- * Features a Grid with a visual indicator for expired licenses
- * (red badge) to alert operations staff.
- *
- * Vaadin DatePicker reference:
- * https://vaadin.com/docs/latest/components/date-picker
- * (Ctrl+F: DatePicker)
+ * <p>System administrators and operations staff can manage
+ * normal driver operations. Archiving remains restricted by
+ * the application service.</p>
  */
-@Route(value = "drivers", layout = MainLayout.class)
+@Route(
+        value = "drivers",
+        layout = MainLayout.class
+)
 @PageTitle("Driver Management")
-@RolesAllowed("SYSTEM_ADMIN")
+@RolesAllowed({
+        "SYSTEM_ADMIN",
+        "OPERATIONS_STAFF"
+})
 public class DriverManagementView extends VerticalLayout {
 
+    // constants
+
+    private static final Logger log =
+            LoggerFactory.getLogger(
+                    DriverManagementView.class
+            );
+
+    private static final List<String> LICENSE_TYPES =
+            List.of(
+                    "PROFESSIONAL",
+                    "NON_PROFESSIONAL"
+            );
+
+    private static final List<String> EMPLOYMENT_STATUSES =
+            List.of(
+                    "ACTIVE",
+                    "INACTIVE",
+                    "SUSPENDED",
+                    "TERMINATED"
+            );
+
+    // dependencies
+
     private final DriverManagementService driverService;
-    private final Grid<DriverSummaryView> grid = new Grid<>();
-    private final com.vaadin.flow.component.splitlayout.SplitLayout splitLayout = new com.vaadin.flow.component.splitlayout.SplitLayout();
-    private final VerticalLayout sidePanel = new VerticalLayout();
-    private final com.vaadin.flow.component.html.Div sidePanelContent = new com.vaadin.flow.component.html.Div();
+
+    private final Grid<DriverSummaryView> grid =
+            new Grid<>();
+
+    private final SplitLayout splitLayout =
+            new SplitLayout();
+
+    private final VerticalLayout sidePanel =
+            new VerticalLayout();
+
+    private final Div sidePanelContent =
+            new Div();
+    
     private String currentSearchFilter = "";
 
-    public DriverManagementView(DriverManagementService driverService) {
+    // constructor
+
+    public DriverManagementView(
+            DriverManagementService driverService) {
+
         this.driverService = driverService;
-        setSizeFull();
-        setPadding(false);
 
-        HorizontalLayout headerLayout = new HorizontalLayout();
-        headerLayout.setWidthFull();
-        headerLayout.setJustifyContentMode(com.vaadin.flow.component.orderedlayout.FlexComponent.JustifyContentMode.BETWEEN);
-        headerLayout.setDefaultVerticalComponentAlignment(com.vaadin.flow.component.orderedlayout.FlexComponent.Alignment.CENTER);
-        headerLayout.setPadding(true);
-
-        H2 title = new H2("Driver Management");
-        title.getStyle().set("margin", "0");
-
-        HorizontalLayout actionsLayout = new HorizontalLayout();
-        com.vaadin.flow.component.textfield.TextField searchField = new com.vaadin.flow.component.textfield.TextField();
-        searchField.setPlaceholder("Search name or license...");
-        searchField.setPrefixComponent(com.vaadin.flow.component.icon.VaadinIcon.SEARCH.create());
-        searchField.setClearButtonVisible(true);
-        searchField.setValueChangeMode(com.vaadin.flow.data.value.ValueChangeMode.LAZY);
-        searchField.addValueChangeListener(e -> {
-            currentSearchFilter = e.getValue();
-            refreshGrid();
-        });
-
-        Button addButton = new Button("Register Driver", click -> openCreateDialog());
-        addButton.addThemeVariants(ButtonVariant.LUMO_PRIMARY);
-        
-        actionsLayout.add(searchField, addButton);
-        actionsLayout.setDefaultVerticalComponentAlignment(com.vaadin.flow.component.orderedlayout.FlexComponent.Alignment.CENTER);
-        headerLayout.add(title, actionsLayout);
-
+        configureView();
+        configureSidePanel();
         configureGrid();
-        
-        VerticalLayout gridContainer = new VerticalLayout(grid);
+
+        HorizontalLayout header =
+                createHeader();
+
+        VerticalLayout gridContainer =
+                new VerticalLayout(
+                        header,
+                        grid
+                );
+
         gridContainer.setSizeFull();
         gridContainer.setPadding(false);
-        
-        Button closeButton = new Button(com.vaadin.flow.component.icon.VaadinIcon.CLOSE.create(), e -> hideSidePanel());
-        closeButton.addThemeVariants(ButtonVariant.LUMO_TERTIARY);
-        HorizontalLayout sidePanelHeader = new HorizontalLayout(new com.vaadin.flow.component.html.H3("Driver Details"), closeButton);
-        sidePanelHeader.setWidthFull();
-        sidePanelHeader.setJustifyContentMode(com.vaadin.flow.component.orderedlayout.FlexComponent.JustifyContentMode.BETWEEN);
-        sidePanelHeader.setDefaultVerticalComponentAlignment(com.vaadin.flow.component.orderedlayout.FlexComponent.Alignment.CENTER);
-        
-        sidePanel.add(sidePanelHeader, sidePanelContent);
-        sidePanel.setVisible(false);
-        sidePanel.setWidth("350px");
-        sidePanel.getStyle().set("background-color", "#ffffff").set("border-left", "1px solid #ddd");
+        gridContainer.setSpacing(false);
 
-        splitLayout.addToPrimary(gridContainer);
-        splitLayout.addToSecondary(sidePanel);
+        splitLayout.addToPrimary(
+                gridContainer
+        );
+
+        splitLayout.addToSecondary(
+                sidePanel
+        );
+
         splitLayout.setSplitterPosition(100);
         splitLayout.setSizeFull();
 
-        add(headerLayout, splitLayout);
-        expand(splitLayout);
+        add(splitLayout);
 
-        refreshGrid();
+        expand(splitLayout);
     }
-    
-    private void showDetails(DriverSummaryView driver) {
+
+    // view
+
+    private void configureView() {
+
+        setSizeFull();
+        setPadding(false);
+        setSpacing(false);
+    }
+
+    // header
+
+    private HorizontalLayout createHeader() {
+
+        HorizontalLayout header =
+                new HorizontalLayout();
+
+        header.setWidthFull();
+        header.setPadding(true);
+
+        header.setJustifyContentMode(
+                FlexComponent.JustifyContentMode.BETWEEN
+        );
+
+        header.setDefaultVerticalComponentAlignment(
+                FlexComponent.Alignment.CENTER
+        );
+
+        H2 title =
+                new H2("Driver Management");
+
+        title.getStyle().set("margin", "0");
+
+        TextField searchField =
+                new TextField();
+
+        searchField.setPlaceholder(
+                "Search name or license..."
+        );
+
+        searchField.setPrefixComponent(
+                VaadinIcon.SEARCH.create()
+        );
+
+        searchField.setClearButtonVisible(true);
+
+        searchField.setValueChangeMode(
+                ValueChangeMode.LAZY
+        );
+
+        searchField.addValueChangeListener(event -> {
+
+            currentSearchFilter =
+                    normalizeSearchFilter(
+                            event.getValue()
+                    );
+
+            refreshGrid();
+        });
+
+        Button addButton =
+                new Button(
+                        "Register Driver",
+                        event -> openCreateDialog()
+                );
+
+        addButton.addThemeVariants(
+                ButtonVariant.LUMO_PRIMARY
+        );
+
+        HorizontalLayout actions =
+                new HorizontalLayout(
+                        searchField,
+                        addButton
+                );
+
+        header.add(
+                title,
+                actions
+        );
+
+        return header;
+    }
+
+    // grid
+
+    private void configureGrid() {
+
+        grid.setSizeFull();
+
+        grid.addColumn(
+                DriverSummaryView::employeeNumber
+        )
+        .setHeader("Employee #")
+        .setSortable(true);
+
+        grid.addColumn(
+                DriverSummaryView::fullName
+        )
+        .setHeader("Name")
+        .setSortable(true);
+
+        grid.addColumn(
+                DriverSummaryView::licenseNumber
+        )
+        .setHeader("License #")
+        .setSortable(true);
+
+        grid.addComponentColumn(
+                this::createLicenseExpiryComponent
+        )
+        .setHeader("License Expiry")
+        .setSortable(true);
+
+        grid.addColumn(
+                DriverSummaryView::employmentStatus
+        )
+        .setHeader("Status")
+        .setSortable(true);
+
+        grid.addComponentColumn(
+                this::createActionButtons
+        )
+        .setHeader("Actions");
+
+        grid.addSelectionListener(event ->
+                event.getFirstSelectedItem()
+                        .ifPresent(this::showDetails)
+        );
+    }
+
+    // license expiry display
+
+    private HorizontalLayout createLicenseExpiryComponent(
+            DriverSummaryView driver) {
+
+        Span expiry =
+                new Span(
+                        driver.licenseExpiryDate()
+                );
+
+        HorizontalLayout layout =
+                new HorizontalLayout(expiry);
+
+        if (driver.licenseExpired()) {
+
+            Span badge =
+                    new Span("EXPIRED");
+
+            badge.getElement()
+                    .getThemeList()
+                    .add("badge error");
+
+            layout.add(badge);
+        }
+
+        return layout;
+    }
+
+    // grid actions
+
+    private HorizontalLayout createActionButtons(
+            DriverSummaryView driver) {
+
+        Button editButton =
+                new Button(
+                        "Edit",
+                        event ->
+                                openEditDialog(
+                                        driver.id()
+                                )
+                );
+
+        Button statusButton =
+                new Button(
+                        "Status",
+                        event ->
+                                openStatusDialog(
+                                        driver.id(),
+                                        driver.employmentStatus()
+                                )
+                );
+
+        Button archiveButton =
+                new Button(
+                        "Archive",
+                        event ->
+                                openArchiveDialog(
+                                        driver
+                                )
+                );
+
+        archiveButton.addThemeVariants(
+                ButtonVariant.LUMO_ERROR
+        );
+
+        return new HorizontalLayout(
+                editButton,
+                statusButton,
+                archiveButton
+        );
+    }
+
+    // details
+
+    private void showDetails(
+            DriverSummaryView driver) {
+
         sidePanelContent.removeAll();
-        sidePanelContent.add(new com.vaadin.flow.component.html.Paragraph("Employee No: " + driver.employeeNumber()));
-        sidePanelContent.add(new com.vaadin.flow.component.html.Paragraph("Name: " + driver.fullName()));
-        sidePanelContent.add(new com.vaadin.flow.component.html.Paragraph("License: " + driver.licenseNumber()));
-        sidePanelContent.add(new com.vaadin.flow.component.html.Paragraph("Status: " + driver.employmentStatus()));
+
+        sidePanelContent.add(
+                new Paragraph(
+                        "Employee No: "
+                                + driver.employeeNumber()
+                )
+        );
+
+        sidePanelContent.add(
+                new Paragraph(
+                        "Name: "
+                                + driver.fullName()
+                )
+        );
+
+        sidePanelContent.add(
+                new Paragraph(
+                        "License: "
+                                + driver.licenseNumber()
+                )
+        );
+
+        sidePanelContent.add(
+                new Paragraph(
+                        "Status: "
+                                + driver.employmentStatus()
+                )
+        );
+
         sidePanel.setVisible(true);
+
         splitLayout.setSplitterPosition(75);
     }
-    
-    private void hideSidePanel() {
+
+    // side panel
+
+    private void configureSidePanel() {
+
+        Button closeButton =
+                new Button(
+                        VaadinIcon.CLOSE.create(),
+                        event ->
+                                hideSidePanel()
+                );
+
+        closeButton.addThemeVariants(
+                ButtonVariant.LUMO_TERTIARY
+        );
+
+        HorizontalLayout header =
+                new HorizontalLayout(
+                        new H3("Driver Details"),
+                        closeButton
+                );
+
+        header.setWidthFull();
+
+        header.setJustifyContentMode(
+                FlexComponent.JustifyContentMode.BETWEEN
+        );
+
+        header.setDefaultVerticalComponentAlignment(
+                FlexComponent.Alignment.CENTER
+        );
+
+        sidePanel.add(
+                header,
+                sidePanelContent
+        );
+
         sidePanel.setVisible(false);
+        sidePanel.setWidth("350px");
+
+        sidePanel.getStyle()
+                .set(
+                        "background-color",
+                        "#ffffff"
+                )
+                .set(
+                        "border-left",
+                        "1px solid #ddd"
+                );
+    }
+
+    private void hideSidePanel() {
+
+        sidePanel.setVisible(false);
+
         splitLayout.setSplitterPosition(100);
     }
 
-    private void configureGrid() {
-        grid.addColumn(DriverSummaryView::employeeNumber).setHeader("Employee #").setSortable(true);
-        grid.addColumn(DriverSummaryView::fullName).setHeader("Name").setSortable(true);
-        grid.addColumn(DriverSummaryView::licenseNumber).setHeader("License #").setSortable(true);
-
-        /*
-         * License expiry column with visual expired indicator.
-         * Shows a red "EXPIRED" badge when the license is past its expiry date.
-         */
-        grid.addComponentColumn(driver -> {
-            Span expiry = new Span(driver.licenseExpiryDate());
-            if (driver.licenseExpired()) {
-                Span badge = new Span(" EXPIRED");
-                badge.getElement().getThemeList().add("badge error");
-                return new HorizontalLayout(expiry, badge);
-            }
-            return expiry;
-        }).setHeader("License Expiry").setSortable(true);
-
-        grid.addColumn(DriverSummaryView::employmentStatus).setHeader("Status").setSortable(true);
-
-        grid.addComponentColumn(driver -> {
-            Button editBtn = new Button("Edit", click -> openEditDialog(driver.id()));
-            Button statusBtn = new Button("Status", click -> openStatusDialog(driver.id(), driver.employmentStatus()));
-            Button archiveBtn = new Button("Archive", click -> archiveDriver(driver.id()));
-            archiveBtn.addThemeVariants(ButtonVariant.LUMO_ERROR);
-            return new HorizontalLayout(editBtn, statusBtn, archiveBtn);
-        }).setHeader("Actions");
-
-        grid.setWidthFull();
-        grid.addSelectionListener(event -> {
-            event.getFirstSelectedItem().ifPresent(this::showDetails);
-        });
-    }
+    // create driver
 
     private void openCreateDialog() {
-        Dialog dialog = new Dialog();
-        dialog.setHeaderTitle("Register New Driver");
 
-        FormLayout form = new FormLayout();
-        TextField empNumber = new TextField("Employee Number");
-        TextField firstName = new TextField("First Name");
-        TextField lastName = new TextField("Last Name");
-        TextField licenseNumber = new TextField("License Number");
-        ComboBox<String> licenseType = new ComboBox<>("License Type");
-        licenseType.setItems("PROFESSIONAL", "NON_PROFESSIONAL");
-        licenseType.setValue("PROFESSIONAL");
-        DatePicker expiryDate = new DatePicker("License Expiry Date");
-        TextField contactNumber = new TextField("Contact Number");
+        Dialog dialog =
+                new Dialog();
 
-        form.add(empNumber, firstName, lastName, licenseNumber, licenseType, expiryDate, contactNumber);
+        dialog.setHeaderTitle(
+                "Register New Driver"
+        );
+
+        TextField employeeNumber =
+                new TextField(
+                        "Employee Number"
+                );
+
+        TextField firstName =
+                new TextField("First Name");
+
+        TextField lastName =
+                new TextField("Last Name");
+
+        TextField licenseNumber =
+                new TextField("License Number");
+
+        ComboBox<String> licenseType =
+                new ComboBox<>("License Type");
+
+        licenseType.setItems(
+                LICENSE_TYPES
+        );
+
+        licenseType.setValue(
+                "PROFESSIONAL"
+        );
+
+        DatePicker expiryDate =
+                new DatePicker(
+                        "License Expiry Date"
+                );
+
+        TextField contactNumber =
+                new TextField(
+                        "Contact Number"
+                );
+
+        FormLayout form =
+                new FormLayout(
+                        employeeNumber,
+                        firstName,
+                        lastName,
+                        licenseNumber,
+                        licenseType,
+                        expiryDate,
+                        contactNumber
+                );
+
         dialog.add(form);
 
-        Button saveBtn = new Button("Save", click -> {
-            try {
-                driverService.registerDriver(new CreateDriverCommand(
-                        empNumber.getValue(),
-                        firstName.getValue(),
-                        lastName.getValue(),
-                        licenseNumber.getValue(),
-                        licenseType.getValue(),
-                        expiryDate.getValue(),
-                        contactNumber.getValue()
-                ));
-                Notification.show("Driver registered successfully", 3000, Notification.Position.TOP_CENTER)
-                        .addThemeVariants(NotificationVariant.LUMO_SUCCESS);
-                dialog.close();
-                refreshGrid();
-            } catch (Exception e) {
-                Notification.show("Error: " + e.getMessage(), 5000, Notification.Position.TOP_CENTER)
-                        .addThemeVariants(NotificationVariant.LUMO_ERROR);
-            }
-        });
-        saveBtn.addThemeVariants(ButtonVariant.LUMO_PRIMARY);
+        Button saveButton =
+                new Button(
+                        "Save",
+                        event -> {
 
-        Button cancelBtn = new Button("Cancel", click -> dialog.close());
-        dialog.getFooter().add(cancelBtn, saveBtn);
+                            try {
+
+                                driverService.registerDriver(
+                                        new CreateDriverCommand(
+                                                employeeNumber.getValue(),
+                                                firstName.getValue(),
+                                                lastName.getValue(),
+                                                licenseNumber.getValue(),
+                                                licenseType.getValue(),
+                                                expiryDate.getValue(),
+                                                contactNumber.getValue()
+                                        )
+                                );
+
+                                dialog.close();
+
+                                refreshGrid();
+
+                                showSuccess(
+                                        "Driver registered successfully."
+                                );
+
+                            } catch (RuntimeException exception) {
+
+                                showError(
+                                        "Register driver",
+                                        exception
+                                );
+                            }
+                        }
+                );
+
+        saveButton.addThemeVariants(
+                ButtonVariant.LUMO_PRIMARY
+        );
+
+        Button cancelButton =
+                new Button(
+                        "Cancel",
+                        event -> dialog.close()
+                );
+
+        dialog.getFooter().add(
+                cancelButton,
+                saveButton
+        );
+
         dialog.open();
     }
 
-    private void openEditDialog(Long driverId) {
-        DriverView driver = driverService.getDriver(driverId);
+    // edit driver
 
-        Dialog dialog = new Dialog();
-        dialog.setHeaderTitle("Edit Driver — " + driver.firstName() + " " + driver.lastName());
+    private void openEditDialog(
+            Long driverId) {
 
-        FormLayout form = new FormLayout();
-        TextField empNumber = new TextField("Employee Number");
-        empNumber.setValue(driver.employeeNumber());
-        TextField firstName = new TextField("First Name");
-        firstName.setValue(driver.firstName());
-        TextField lastName = new TextField("Last Name");
-        lastName.setValue(driver.lastName());
-        TextField licenseNumber = new TextField("License Number");
-        licenseNumber.setValue(driver.licenseNumber());
-        ComboBox<String> licenseType = new ComboBox<>("License Type");
-        licenseType.setItems("PROFESSIONAL", "NON_PROFESSIONAL");
-        licenseType.setValue(driver.licenseType());
-        DatePicker expiryDate = new DatePicker("License Expiry Date");
-        expiryDate.setValue(java.time.LocalDate.parse(driver.licenseExpiryDate()));
-        TextField contactNumber = new TextField("Contact Number");
-        contactNumber.setValue(driver.contactNumber() != null ? driver.contactNumber() : "");
+        final DriverView driver;
 
-        form.add(empNumber, firstName, lastName, licenseNumber, licenseType, expiryDate, contactNumber);
+        try {
+
+            driver =
+                    driverService.getDriver(
+                            driverId
+                    );
+
+        } catch (RuntimeException exception) {
+
+            showError(
+                    "Load driver",
+                    exception
+            );
+
+            return;
+        }
+
+        Dialog dialog =
+                new Dialog();
+
+        dialog.setHeaderTitle(
+                "Edit Driver — "
+                        + driver.firstName()
+                        + " "
+                        + driver.lastName()
+        );
+
+        TextField employeeNumber =
+                new TextField(
+                        "Employee Number"
+                );
+
+        employeeNumber.setValue(
+                driver.employeeNumber()
+        );
+
+        TextField firstName =
+                new TextField("First Name");
+
+        firstName.setValue(
+                driver.firstName()
+        );
+
+        TextField lastName =
+                new TextField("Last Name");
+
+        lastName.setValue(
+                driver.lastName()
+        );
+
+        TextField licenseNumber =
+                new TextField(
+                        "License Number"
+                );
+
+        licenseNumber.setValue(
+                driver.licenseNumber()
+        );
+
+        ComboBox<String> licenseType =
+                new ComboBox<>("License Type");
+
+        licenseType.setItems(
+                LICENSE_TYPES
+        );
+
+        licenseType.setValue(
+                driver.licenseType()
+        );
+
+        DatePicker expiryDate =
+                new DatePicker(
+                        "License Expiry Date"
+                );
+
+        expiryDate.setValue(
+                LocalDate.parse(
+                        driver.licenseExpiryDate()
+                )
+        );
+
+        TextField contactNumber =
+                new TextField(
+                        "Contact Number"
+                );
+
+        contactNumber.setValue(
+                driver.contactNumber() == null
+                        ? ""
+                        : driver.contactNumber()
+        );
+
+        FormLayout form =
+                new FormLayout(
+                        employeeNumber,
+                        firstName,
+                        lastName,
+                        licenseNumber,
+                        licenseType,
+                        expiryDate,
+                        contactNumber
+                );
+
         dialog.add(form);
 
-        Button saveBtn = new Button("Save", click -> {
-            try {
-                driverService.updateDriver(new UpdateDriverCommand(
-                        driverId,
-                        empNumber.getValue(),
-                        firstName.getValue(),
-                        lastName.getValue(),
-                        licenseNumber.getValue(),
-                        licenseType.getValue(),
-                        expiryDate.getValue(),
-                        contactNumber.getValue()
-                ));
-                Notification.show("Driver updated successfully", 3000, Notification.Position.TOP_CENTER)
-                        .addThemeVariants(NotificationVariant.LUMO_SUCCESS);
-                dialog.close();
-                refreshGrid();
-            } catch (Exception e) {
-                Notification.show("Error: " + e.getMessage(), 5000, Notification.Position.TOP_CENTER)
-                        .addThemeVariants(NotificationVariant.LUMO_ERROR);
-            }
-        });
-        saveBtn.addThemeVariants(ButtonVariant.LUMO_PRIMARY);
+        Button saveButton =
+                new Button(
+                        "Save",
+                        event -> {
 
-        Button cancelBtn = new Button("Cancel", click -> dialog.close());
-        dialog.getFooter().add(cancelBtn, saveBtn);
+                            try {
+
+                                driverService.updateDriver(
+                                        new UpdateDriverCommand(
+                                                driverId,
+                                                employeeNumber.getValue(),
+                                                firstName.getValue(),
+                                                lastName.getValue(),
+                                                licenseNumber.getValue(),
+                                                licenseType.getValue(),
+                                                expiryDate.getValue(),
+                                                contactNumber.getValue()
+                                        )
+                                );
+
+                                dialog.close();
+
+                                refreshGrid();
+
+                                showSuccess(
+                                        "Driver updated successfully."
+                                );
+
+                            } catch (RuntimeException exception) {
+
+                                showError(
+                                        "Update driver",
+                                        exception
+                                );
+                            }
+                        }
+                );
+
+        saveButton.addThemeVariants(
+                ButtonVariant.LUMO_PRIMARY
+        );
+
+        Button cancelButton =
+                new Button(
+                        "Cancel",
+                        event -> dialog.close()
+                );
+
+        dialog.getFooter().add(
+                cancelButton,
+                saveButton
+        );
+
         dialog.open();
     }
 
-    private void openStatusDialog(Long driverId, String currentStatus) {
-        Dialog dialog = new Dialog();
-        dialog.setHeaderTitle("Change Employment Status");
+    // employment status
 
-        ComboBox<String> statusCombo = new ComboBox<>("New Status");
-        statusCombo.setItems("ACTIVE", "INACTIVE", "SUSPENDED", "TERMINATED");
-        statusCombo.setValue(currentStatus);
+    private void openStatusDialog(
+            Long driverId,
+            String currentStatus) {
+
+        Dialog dialog =
+                new Dialog();
+
+        dialog.setHeaderTitle(
+                "Change Employment Status"
+        );
+
+        ComboBox<String> statusCombo =
+                new ComboBox<>("New Status");
+
+        statusCombo.setItems(
+                EMPLOYMENT_STATUSES
+        );
+
+        statusCombo.setValue(
+                currentStatus
+        );
+
+        statusCombo.setRequiredIndicatorVisible(
+                true
+        );
 
         dialog.add(statusCombo);
 
-        Button saveBtn = new Button("Update Status", click -> {
-            try {
-                driverService.changeEmploymentStatus(driverId, statusCombo.getValue());
-                Notification.show("Status updated", 3000, Notification.Position.TOP_CENTER)
-                        .addThemeVariants(NotificationVariant.LUMO_SUCCESS);
-                dialog.close();
-                refreshGrid();
-            } catch (Exception e) {
-                Notification.show("Error: " + e.getMessage(), 5000, Notification.Position.TOP_CENTER)
-                        .addThemeVariants(NotificationVariant.LUMO_ERROR);
-            }
-        });
-        saveBtn.addThemeVariants(ButtonVariant.LUMO_PRIMARY);
+        Button saveButton =
+                new Button(
+                        "Update Status",
+                        event -> {
 
-        Button cancelBtn = new Button("Cancel", click -> dialog.close());
-        dialog.getFooter().add(cancelBtn, saveBtn);
+                            String status =
+                                    statusCombo.getValue();
+
+                            if (status == null
+                                    || status.isBlank()) {
+
+                                showErrorNotification(
+                                        "Select an employment status."
+                                );
+
+                                return;
+                            }
+
+                            try {
+
+                                driverService
+                                        .changeEmploymentStatus(
+                                                driverId,
+                                                status
+                                        );
+
+                                dialog.close();
+
+                                refreshGrid();
+
+                                showSuccess(
+                                        "Status updated successfully."
+                                );
+
+                            } catch (RuntimeException exception) {
+
+                                showError(
+                                        "Update status",
+                                        exception
+                                );
+                            }
+                        }
+                );
+
+        saveButton.addThemeVariants(
+                ButtonVariant.LUMO_PRIMARY
+        );
+
+        Button cancelButton =
+                new Button(
+                        "Cancel",
+                        event -> dialog.close()
+                );
+
+        dialog.getFooter().add(
+                cancelButton,
+                saveButton
+        );
+
         dialog.open();
     }
 
-    private void archiveDriver(Long driverId) {
-        try {
-            driverService.archiveDriver(driverId);
-            Notification.show("Driver archived", 3000, Notification.Position.TOP_CENTER)
-                    .addThemeVariants(NotificationVariant.LUMO_SUCCESS);
-            refreshGrid();
-        } catch (Exception e) {
-            Notification.show("Error: " + e.getMessage(), 5000, Notification.Position.TOP_CENTER)
-                    .addThemeVariants(NotificationVariant.LUMO_ERROR);
-        }
+    // archive driver
+
+    private void openArchiveDialog(
+            DriverSummaryView driver) {
+
+        ConfirmDialog dialog =
+                new ConfirmDialog();
+
+        dialog.setHeader(
+                "Archive Driver?"
+        );
+
+        dialog.setText(
+                "Archive driver "
+                        + driver.fullName()
+                        + "? The driver will be removed "
+                        + "from the active driver list."
+        );
+
+        dialog.setCancelable(true);
+
+        dialog.setConfirmText(
+                "Archive Driver"
+        );
+
+        dialog.setConfirmButtonTheme(
+                "error primary"
+        );
+
+        dialog.addConfirmListener(
+                event -> {
+
+                    try {
+
+                        driverService.archiveDriver(
+                                driver.id()
+                        );
+
+                        refreshGrid();
+
+                        hideSidePanel();
+
+                        showSuccess(
+                                "Driver archived successfully."
+                        );
+
+                    } catch (RuntimeException exception) {
+
+                        showError(
+                                "Archive driver",
+                                exception
+                        );
+                    }
+                }
+        );
+
+        dialog.open();
     }
 
+    // refresh grid
+
     private void refreshGrid() {
-        var items = driverService.searchDrivers(new DriverQuery(null, null), PageRequest.of(0, 100)).getContent();
-        if (currentSearchFilter != null && !currentSearchFilter.isEmpty()) {
-            String q = currentSearchFilter.toLowerCase();
-            items = items.stream().filter(d -> d.fullName().toLowerCase().contains(q) || d.licenseNumber().toLowerCase().contains(q)).toList();
+
+        /*
+         * Keep the existing repository/service behavior for now.
+         *
+         * The DriverQuery search implementation will be moved into
+         * the repository in a later coordinated cleanup.
+         */
+        var items =
+                driverService
+                        .searchDrivers(
+                                new DriverQuery(
+                                        null,
+                                        null
+                                ),
+                                PageRequest.of(0, 100)
+                        )
+                        .getContent();
+
+        if (!currentSearchFilter.isBlank()) {
+
+            String query =
+                    currentSearchFilter
+                            .toLowerCase();
+
+            items = items.stream()
+                    .filter(driver ->
+                            driver.fullName()
+                                    .toLowerCase()
+                                    .contains(query)
+                            || driver.licenseNumber()
+                                    .toLowerCase()
+                                    .contains(query)
+                            || driver.employeeNumber()
+                                    .toLowerCase()
+                                    .contains(query)
+                    )
+                    .toList();
         }
+
         grid.setItems(items);
+    }
+
+    // search normalization
+
+    private static String normalizeSearchFilter(
+            String value) {
+
+        if (value == null) {
+            return "";
+        }
+
+        return value.trim();
+    }
+
+    // notifications
+
+    private void showSuccess(
+            String message) {
+
+        Notification.show(
+                        message,
+                        3000,
+                        Notification.Position.TOP_CENTER
+                )
+                .addThemeVariants(
+                        NotificationVariant.LUMO_SUCCESS
+                );
+    }
+
+    private void showError(
+            String operation,
+            RuntimeException exception) {
+
+        log.error(
+                "{} failed.",
+                operation,
+                exception
+        );
+
+        Notification.show(
+                        "The operation could not be completed.",
+                        5000,
+                        Notification.Position.TOP_CENTER
+                )
+                .addThemeVariants(
+                        NotificationVariant.LUMO_ERROR
+                );
+    }
+
+    private void showErrorNotification(
+            String message) {
+
+        Notification.show(
+                        message,
+                        4000,
+                        Notification.Position.TOP_CENTER
+                )
+                .addThemeVariants(
+                        NotificationVariant.LUMO_ERROR
+                );
     }
 }

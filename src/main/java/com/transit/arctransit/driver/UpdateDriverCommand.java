@@ -5,9 +5,7 @@ import jakarta.validation.constraints.NotNull;
 
 import java.time.LocalDate;
 
-/**
- * Command to update an existing driver's details.
- */
+// update existing driver details
 public record UpdateDriverCommand(
         @NotNull(message = "Driver ID is required") Long id,
         @NotBlank(message = "Employee number cannot be blank") String employeeNumber,

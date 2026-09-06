@@ -4,9 +4,7 @@ import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotNull;
 import jakarta.validation.constraints.Positive;
 
-/**
- * Command to update an existing fleet unit's details.
- */
+// to update an existing bust fleet unit details
 public record UpdateFleetUnitCommand(
         @NotNull(message = "Fleet unit ID is required") Long id,
         @NotBlank(message = "Unit number cannot be blank") String unitNumber,

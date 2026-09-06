@@ -1,8 +1,6 @@
 package com.transit.arctransit.driver;
 
-/**
- * Immutable view of a driver for frontend consumption.
- */
+// view of driver in UI
 public record DriverView(
         Long id,
         String employeeNumber,

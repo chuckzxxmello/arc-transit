@@ -1,13 +1,14 @@
 package com.transit.arctransit.route;
 
-/**
- * Summary view for route management list grids.
- */
+// compact route representation for list and grid views
 public record RouteSummaryView(
+
         Long id,
         String routeCode,
         String routeName,
         int stopCount,
         Integer estimatedDurationMinutes,
         String routeStatus
-) {}
+
+) {
+}

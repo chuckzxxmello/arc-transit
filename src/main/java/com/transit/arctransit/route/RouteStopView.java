@@ -1,8 +1,6 @@
 package com.transit.arctransit.route;
 
-/**
- * Immutable view of a single route stop for frontend consumption.
- */
+// view a single route stop for user interface view
 public record RouteStopView(
         String stopName,
         int stopSequence,

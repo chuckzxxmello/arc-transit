@@ -12,30 +12,7 @@ import jakarta.persistence.Version;
 
 import java.time.Instant;
 
-/**
- * Master identity and operational state of a bus registered in the Arc Transit
- * fleet.
- *
- * Maps to the arc.fleet_units table created by V1__create_fleet_units.sql.
- *
- * Design decisions:
- *
- * 1. @Enumerated(EnumType.STRING) is used for both vehicleType and
- * operationalStatus
- * so that Hibernate stores the Java enum constant name directly as the VARCHAR
- * column value. This makes the database human-readable and avoids the fragility
- * of ordinal-based enum mapping.
- *
- * 2. @Version enables JPA optimistic locking. If two transactions attempt to
- * update
- * the same fleet unit concurrently, the second one receives an
- * OptimisticLockException instead of silently overwriting the first.
- *
- * 3. Soft-delete via archivedAt: fleet units are never physically deleted from
- * the database. Instead, the archivedAt timestamp is set to mark the record
- * as archived. This preserves historical links to dispatch, maintenance,
- * incident, and audit records.
- */
+// identity and operational state of bus fleet units
 @Entity
 @Table(name = "fleet_units", schema = "arc")
 public class FleetUnit {
@@ -44,21 +21,39 @@ public class FleetUnit {
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;
 
-    @Column(name = "unit_number", length = 30, nullable = false, unique = true)
+    @Column(
+            name = "unit_number",
+            length = 30,
+            nullable = false,
+            unique = true
+    )
     private String unitNumber;
 
-    @Column(name = "plate_number", length = 20, nullable = false, unique = true)
+    @Column(
+            name = "plate_number",
+            length = 20,
+            nullable = false,
+            unique = true
+    )
     private String plateNumber;
 
     @Enumerated(EnumType.STRING)
-    @Column(name = "vehicle_type", length = 30, nullable = false)
+    @Column(
+            name = "vehicle_type",
+            length = 30,
+            nullable = false
+    )
     private VehicleType vehicleType;
 
     @Column(name = "capacity", nullable = false)
     private Short capacity;
 
     @Enumerated(EnumType.STRING)
-    @Column(name = "operational_status", length = 30, nullable = false)
+    @Column(
+            name = "operational_status",
+            length = 30,
+            nullable = false
+    )
     private OperationalStatus operationalStatus;
 
     @Column(name = "created_at", nullable = false)
@@ -73,117 +68,141 @@ public class FleetUnit {
     @Version
     private Long version;
 
-    /** JPA requires a protected no-args constructor. */
+    // Required by JPA
     protected FleetUnit() {
     }
 
-    /**
-     * Creates a new fleet unit with INACTIVE status.
-     * A newly registered bus does not automatically become available for dispatch.
-     */
-    public FleetUnit(String unitNumber, String plateNumber, VehicleType vehicleType, short capacity) {
-        this.unitNumber = unitNumber;
-        this.plateNumber = plateNumber;
-        this.vehicleType = vehicleType;
-        this.capacity = capacity;
-        this.operationalStatus = OperationalStatus.INACTIVE;
-        this.createdAt = Instant.now();
-        this.updatedAt = this.createdAt;
+    // create new bus fleet unit
+    public FleetUnit(
+		            String unitNumber,
+		            String plateNumber,
+		            VehicleType vehicleType,
+		            short capacity) {
+
+    this.unitNumber = unitNumber;
+    this.plateNumber = plateNumber;
+    this.vehicleType = vehicleType;
+    this.capacity = capacity;
+    this.operationalStatus = OperationalStatus.INACTIVE;
+
+    Instant now = Instant.now();
+    
+    this.createdAt = now;
+    this.updatedAt = now;
     }
 
-    // --- Domain Methods ---
-
-    /** Marks this bus as available for dispatch. */
+    // operational status fleet changes
     public void activate() {
-        this.operationalStatus = OperationalStatus.ACTIVE;
-        this.updatedAt = Instant.now();
+		changeOperationalStatus(OperationalStatus.ACTIVE);
     }
 
-    /** Marks this bus as unavailable for dispatch. */
     public void deactivate() {
-        this.operationalStatus = OperationalStatus.INACTIVE;
-        this.updatedAt = Instant.now();
+		changeOperationalStatus(OperationalStatus.INACTIVE);
     }
 
-    /** Marks this bus as undergoing maintenance. */
     public void markUnderMaintenance() {
-        this.operationalStatus = OperationalStatus.UNDER_MAINTENANCE;
-        this.updatedAt = Instant.now();
+		changeOperationalStatus(OperationalStatus.UNDER_MAINTENANCE);
     }
 
-    /** Marks this bus as permanently removed from service. */
     public void markOutOfService() {
-        this.operationalStatus = OperationalStatus.OUT_OF_SERVICE;
-        this.updatedAt = Instant.now();
+		changeOperationalStatus(OperationalStatus.OUT_OF_SERVICE);
     }
 
-    /** Changes the operational status to the specified value. */
+    // changes the operational status of the bus fleet unit
     public void changeOperationalStatus(OperationalStatus newStatus) {
-        this.operationalStatus = newStatus;
-        this.updatedAt = Instant.now();
+
+        if (newStatus == null) {
+            		throw new IllegalArgumentException("Operational status cannot be null.");
+        }
+
+    this.operationalStatus = newStatus;
+    this.updatedAt = Instant.now();
     }
 
-    /** Soft-deletes this fleet unit by setting the archive timestamp. */
+    // archives the bus fleet unit
     public void archive() {
-        this.archivedAt = Instant.now();
-        this.updatedAt = Instant.now();
+
+        if (archivedAt != null) {
+            return;
+        }
+
+    Instant now = Instant.now();
+
+    this.archivedAt = now;
+    this.updatedAt = now;
     }
 
-    /** Restores this fleet unit from the archive. */
+    // restores the bus fleet unit from the archive
     public void unarchive() {
+
+        if (archivedAt == null) {
+        						return;
+        }
+
         this.archivedAt = null;
         this.updatedAt = Instant.now();
     }
 
-    /** Returns true when this fleet unit has not been archived. */
-    public boolean isActive() {
-        return archivedAt == null;
+    // update fields
+    public void updateDetails(
+				            String unitNumber,
+				            String plateNumber,
+				            short capacity) {
+
+    this.unitNumber = unitNumber;
+    this.plateNumber = plateNumber;
+    this.capacity = capacity;
+    this.updatedAt = Instant.now();
     }
 
-    // --- Field Updates ---
-
-    public void updateDetails(String unitNumber, String plateNumber, short capacity) {
-        this.unitNumber = unitNumber;
-        this.plateNumber = plateNumber;
-        this.capacity = capacity;
-        this.updatedAt = Instant.now();
+    // state queries
+    
+    // return true if the bus fleet unit has been archived
+    public boolean isArchived() {
+					        return archivedAt != null;
     }
 
-    // --- Getters ---
+     // return true if the bus fleet is both considered as non-archived and
+     // operationally available for dispatch.
+    public boolean isAvailableForDispatch() {
+								        return !isArchived()
+								        && operationalStatus == OperationalStatus.ACTIVE;
+    }
 
+    // getters
     public Long getId() {
-        return id;
+		return id;
     }
 
     public String getUnitNumber() {
-        return unitNumber;
+		return unitNumber;
     }
 
     public String getPlateNumber() {
-        return plateNumber;
+		return plateNumber;
     }
 
     public VehicleType getVehicleType() {
-        return vehicleType;
+		return vehicleType;
     }
 
     public Short getCapacity() {
-        return capacity;
+		return capacity;
     }
 
     public OperationalStatus getOperationalStatus() {
-        return operationalStatus;
+		return operationalStatus;
     }
 
     public Instant getCreatedAt() {
-        return createdAt;
+		return createdAt;
     }
 
     public Instant getUpdatedAt() {
-        return updatedAt;
+		return updatedAt;
     }
 
     public Instant getArchivedAt() {
-        return archivedAt;
+		return archivedAt;
     }
 }

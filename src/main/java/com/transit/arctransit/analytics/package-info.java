@@ -1,12 +1,10 @@
-/*
-Arc Transit Analytics module.
+// Arc Transit Analytics module.
  
- This module owns read-only operational summaries,
- dashboard metrics, and the main dashboard interface.
- */
+// operational summaries, dashboard metrics
+// and the main dashboard interface
 
 @org.springframework.modulith.ApplicationModule(
         displayName = "Analytics",
-        allowedDependencies = {"auth", "fleet", "driver", "route", "dispatch", "common"}
+        allowedDependencies = {"auth", "fleet", "driver", "route", "dispatch", "incident", "maintenance", "reconciliation", "common"}
 )
 package com.transit.arctransit.analytics;

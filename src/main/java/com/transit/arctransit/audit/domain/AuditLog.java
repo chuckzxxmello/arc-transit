@@ -9,39 +9,74 @@ import jakarta.persistence.Table;
 
 import java.time.Instant;
 
-/**
- * Represents a persistent audit log entry for a business action.
- */
+// persistent append-only audit record
+
 @Entity
-@Table(name = "audit_logs", schema = "arc")
+@Table(
+        name = "audit_logs",
+        schema = "arc"
+)
 public class AuditLog {
 
     @Id
-    @GeneratedValue(strategy = GenerationType.IDENTITY)
+    @GeneratedValue(
+            strategy = GenerationType.IDENTITY
+    )
     private Long id;
 
-    @Column(name = "action_name", nullable = false, length = 100)
+    @Column(
+            name = "action_name",
+            nullable = false,
+            length = 100
+    )
     private String actionName;
 
-    @Column(name = "entity_name", nullable = false, length = 100)
+    @Column(
+            name = "entity_name",
+            nullable = false,
+            length = 100
+    )
     private String entityName;
 
-    @Column(name = "entity_id", nullable = false)
+    @Column(
+            name = "entity_id",
+            nullable = false
+    )
     private Long entityId;
 
-    @Column(name = "performed_by", nullable = false, length = 100)
+    @Column(
+            name = "performed_by",
+            nullable = false,
+            length = 100
+    )
     private String performedBy;
 
-    @Column(name = "timestamp", nullable = false)
+    @Column(
+            name = "timestamp",
+            nullable = false
+    )
     private Instant timestamp;
 
-    @Column(name = "details", columnDefinition = "TEXT")
+    @Column(
+            name = "details",
+            columnDefinition = "TEXT"
+    )
     private String details;
 
-    /** JPA requires a protected no-args constructor. */
-    protected AuditLog() {}
+    // JPA
 
-    public AuditLog(String actionName, String entityName, Long entityId, String performedBy, String details) {
+    protected AuditLog() {
+    }
+
+    // create audit record
+
+    public AuditLog(
+            String actionName,
+            String entityName,
+            Long entityId,
+            String performedBy,
+            String details) {
+
         this.actionName = actionName;
         this.entityName = entityName;
         this.entityId = entityId;
@@ -50,13 +85,33 @@ public class AuditLog {
         this.details = details;
     }
 
-    // --- Getters ---
+    // getters
 
-    public Long getId() { return id; }
-    public String getActionName() { return actionName; }
-    public String getEntityName() { return entityName; }
-    public Long getEntityId() { return entityId; }
-    public String getPerformedBy() { return performedBy; }
-    public Instant getTimestamp() { return timestamp; }
-    public String getDetails() { return details; }
+    public Long getId() {
+        return id;
+    }
+
+    public String getActionName() {
+        return actionName;
+    }
+
+    public String getEntityName() {
+        return entityName;
+    }
+
+    public Long getEntityId() {
+        return entityId;
+    }
+
+    public String getPerformedBy() {
+        return performedBy;
+    }
+
+    public Instant getTimestamp() {
+        return timestamp;
+    }
+
+    public String getDetails() {
+        return details;
+    }
 }

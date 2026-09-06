@@ -1,5 +1,6 @@
 package com.transit.arctransit.auth.domain;
 
+// jakarta persistence
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
 import jakarta.persistence.FetchType;
@@ -11,9 +12,8 @@ import jakarta.persistence.Table;
 
 import java.time.Instant;
 
-/**
- * Maps a role assignment to a staff account.
- */
+// maps role assignment to a staff account
+
 @Entity
 @Table(name = "user_roles", schema = "arc")
 @IdClass(UserRoleId.class)
@@ -27,8 +27,13 @@ public class UserRole {
     @Column(name = "role_code", length = 40, nullable = false)
     private String roleCode;
 
-    @ManyToOne(fetch = FetchType.LAZY)
-    @JoinColumn(name = "role_code", insertable = false, updatable = false)
+    @ManyToOne(fetch = FetchType.LAZY, optional = false)
+    @JoinColumn(
+    		name = "role_code",
+    		insertable = false,
+    		updatable = false
+    )
+    
     private Role role;
 
     @Column(name = "assigned_by_user_id")
@@ -41,11 +46,14 @@ public class UserRole {
         // JPA
     }
 
-    public UserRole(Long userId, String roleCode, Long assignedByUserId) {
-        this.userId = userId;
-        this.roleCode = roleCode;
-        this.assignedByUserId = assignedByUserId;
-        this.assignedAt = Instant.now();
+    public UserRole(Long userId,
+    				String roleCode,
+    				Long assignedByUserId) {
+    	
+    this.userId = userId;
+    this.roleCode = roleCode;
+    this.assignedByUserId = assignedByUserId;
+    this.assignedAt = Instant.now();
     }
 
     public Long getUserId() {
@@ -58,6 +66,10 @@ public class UserRole {
 
     public Role getRole() {
         return role;
+    }
+    
+    public Long getAssignedByUserId() {
+    	return assignedByUserId;
     }
 
     public Instant getAssignedAt() {

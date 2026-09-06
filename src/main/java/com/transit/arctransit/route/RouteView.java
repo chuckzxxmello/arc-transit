@@ -2,10 +2,9 @@ package com.transit.arctransit.route;
 
 import java.util.List;
 
-/**
- * Immutable view of a route with its ordered stops.
- */
+// detailed route representation
 public record RouteView(
+
         Long id,
         String routeCode,
         String routeName,
@@ -13,4 +12,11 @@ public record RouteView(
         String routeStatus,
         Integer estimatedDurationMinutes,
         List<RouteStopView> stops
-) {}
+
+) {
+    public RouteView {
+        stops = stops == null
+                ? List.of()
+                : List.copyOf(stops);
+    }
+}

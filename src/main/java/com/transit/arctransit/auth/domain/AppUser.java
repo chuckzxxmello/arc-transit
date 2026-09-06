@@ -1,7 +1,10 @@
 package com.transit.arctransit.auth.domain;
 
+// jakarta persistence
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
+import jakarta.persistence.EnumType;
+import jakarta.persistence.Enumerated;
 import jakarta.persistence.FetchType;
 import jakarta.persistence.GeneratedValue;
 import jakarta.persistence.GenerationType;
@@ -11,19 +14,12 @@ import jakarta.persistence.OneToMany;
 import jakarta.persistence.Table;
 import jakarta.persistence.Version;
 
-import jakarta.persistence.EnumType;
-import jakarta.persistence.Enumerated;
-
+// java util and time
 import java.time.Instant;
 import java.util.HashSet;
 import java.util.Set;
 
-/**
- * Authenticated staff account stored in arc.app_users.
- *
- * Passwords are stored as BCrypt hashes and verified
- * by Spring Security through AppUserDetailsService.
- */
+// user data directory
 @Entity
 @Table(name = "app_users", schema = "arc")
 public class AppUser {
@@ -32,7 +28,7 @@ public class AppUser {
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;
 
-    @Column(name = "username", length = 50, nullable = false, unique = true)
+    @Column(name = "username", length = 50, nullable = false)
     private String username;
 
     @Column(name = "password_hash", length = 100, nullable = false)
@@ -47,7 +43,7 @@ public class AppUser {
     @Enumerated(EnumType.STRING)
     @Column(name = "account_status", length = 20, nullable = false)
     private AccountStatus accountStatus;
-
+    
     @Column(name = "last_login_at")
     private Instant lastLoginAt;
 
@@ -64,14 +60,23 @@ public class AppUser {
     private Long version;
 
     @OneToMany(fetch = FetchType.EAGER)
-    @JoinColumn(name = "user_id", insertable = false, updatable = false)
+    @JoinColumn(
+    		name = "user_id",
+    		insertable = false,
+    		updatable = false
+    )
     private Set<UserRole> userRoles = new HashSet<>();
 
     protected AppUser() {
         // JPA
     }
 
-    public AppUser(String username, String passwordHash, String displayName, String email) {
+    public AppUser(
+	    		String username,
+	    		String passwordHash,
+	    		String displayName,
+	    		String email) {
+    	
         this.username = username;
         this.passwordHash = passwordHash;
         this.displayName = displayName;
@@ -81,14 +86,29 @@ public class AppUser {
         this.updatedAt = this.createdAt;
     }
 
+    // change user account state
     public void changeAccountStatus(AccountStatus newStatus) {
         this.accountStatus = newStatus;
         this.updatedAt = Instant.now();
     }
 
+    // update password
     public void changePassword(String newPasswordHash) {
         this.passwordHash = newPasswordHash;
         this.updatedAt = Instant.now();
+    }
+    
+    public void archive() {
+
+        if (archivedAt != null) {
+            return;
+        }
+
+    Instant now = Instant.now();
+
+    this.archivedAt = now;
+    this.accountStatus = AccountStatus.DISABLED;
+    this.updatedAt = now;
     }
 
     public Long getId() {
@@ -111,7 +131,6 @@ public class AppUser {
         return email;
     }
 
-    @Enumerated(EnumType.STRING)
     public AccountStatus getAccountStatus() {
         return accountStatus;
     }
@@ -136,10 +155,13 @@ public class AppUser {
         return userRoles;
     }
 
-    /**
-     * Returns true when the account is allowed to authenticate.
-     */
+    // return true when the user saccount is allowed to authenticate.
     public boolean isActive() {
         return accountStatus == AccountStatus.ACTIVE && archivedAt == null;
+    }
+    
+    // return true when the user account has been archived.
+    public boolean isArchived() {
+        return archivedAt != null;
     }
 }

@@ -1,8 +1,6 @@
 package com.transit.arctransit.auth;
 
-/**
- * Search criteria for querying users.
- */
+// search for users
 public record UserQuery(
         String searchKeyword
 ) {}

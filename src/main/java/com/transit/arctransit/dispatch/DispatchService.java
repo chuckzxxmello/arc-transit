@@ -1,44 +1,50 @@
 package com.transit.arctransit.dispatch;
 
 import jakarta.validation.Valid;
+
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 
-/**
- * Public application service contract for Dispatch and Assignment.
- *
- * This service validates cross-module business rules:
- * - Fleet unit must be ACTIVE and not archived
- * - Driver must be ACTIVE with a valid (non-expired) license
- * - Route must be ACTIVE and not archived
- * - No overlapping assignments for the same bus or driver
- */
+// public application service contract for Dispatch
 public interface DispatchService {
 
-    /** Creates a new dispatch assignment after validating all business rules. */
-    DispatchAssignmentView createAssignment(@Valid CreateDispatchCommand command);
+    // create a new dispatch assignment
+    DispatchAssignmentView createAssignment(
+            @Valid CreateDispatchCommand command
+    );
 
-    /** Transitions SCHEDULED -> IN_PROGRESS. */
-    DispatchAssignmentView startTrip(Long assignmentId);
+    // start scheduled trip
+    DispatchAssignmentView startTrip(
+            Long assignmentId
+    );
 
-    /** Transitions IN_PROGRESS -> COMPLETED. */
-    DispatchAssignmentView completeTrip(Long assignmentId);
+    // complete an in-progress trip
+    DispatchAssignmentView completeTrip(
+            Long assignmentId
+    );
 
-    /** Transitions to CANCELLED. */
-    DispatchAssignmentView cancelAssignment(Long assignmentId);
+    // cancel scheduled or in-progress assignment
+    DispatchAssignmentView cancelAssignment(
+            Long assignmentId
+    );
 
-    /** Searches dispatch assignments. */
-    Page<DispatchAssignmentView> searchAssignments(DispatchQuery query, Pageable pageable);
+    // search active dispatch assignments
+    Page<DispatchAssignmentView> searchAssignments(
+            DispatchQuery query,
+            Pageable pageable
+    );
 
-    /** Returns count of completed trips for dashboard display. */
+    // dashboard count
     long countCompletedTrips();
 
-    /** Archives a completed or cancelled assignment. */
+    // archive completed or cancelled assignment
     void archiveAssignment(Long id);
 
-    /** Unarchives an assignment. */
+    // restore archived assignment
     void unarchiveAssignment(Long id);
 
-    /** Searches archived dispatch assignments. */
-    Page<DispatchAssignmentView> searchArchivedAssignments(Pageable pageable);
+    // search archived assignments
+    Page<DispatchAssignmentView> searchArchivedAssignments(
+            Pageable pageable
+    );
 }

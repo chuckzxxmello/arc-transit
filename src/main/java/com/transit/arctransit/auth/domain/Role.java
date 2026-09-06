@@ -5,10 +5,9 @@ import jakarta.persistence.Entity;
 import jakarta.persistence.Id;
 import jakarta.persistence.Table;
 
-/**
- * - SYSTEM_ADMIN
- * - OPERATIONS_STAFF
- */
+// SYSTEM_ADMIN
+// OPERATIONS_STAFF
+
 @Entity
 @Table(name = "roles", schema = "arc")
 public class Role {
