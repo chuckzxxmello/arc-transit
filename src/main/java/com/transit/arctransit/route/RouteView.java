@@ -11,9 +11,17 @@ public record RouteView(
         String description,
         String routeStatus,
         Integer estimatedDurationMinutes,
-        List<RouteStopView> stops
+        List<RouteStopView> stops,
+        java.time.Instant archivedAt
 
 ) {
+    public RouteView(Long id, String routeCode, String routeName, String description,
+                     String routeStatus, Integer estimatedDurationMinutes,
+                     List<RouteStopView> stops) {
+        this(id, routeCode, routeName, description, routeStatus,
+                estimatedDurationMinutes, stops, null);
+    }
+
     public RouteView {
         stops = stops == null
                 ? List.of()

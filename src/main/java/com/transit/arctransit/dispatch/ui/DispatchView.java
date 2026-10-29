@@ -1,6 +1,10 @@
 package com.transit.arctransit.dispatch.ui;
 
+import com.transit.arctransit.common.ui.RefreshButton;
+import com.transit.arctransit.common.ui.Dialogs;
 // dispatch module
+
+import com.transit.arctransit.common.ui.FormInputs;
 
 import com.transit.arctransit.dispatch.CreateDispatchCommand;
 import com.transit.arctransit.dispatch.DispatchAssignmentView;
@@ -34,11 +38,12 @@ import com.transit.arctransit.common.ui.MainLayout;
 import com.vaadin.flow.component.button.Button;
 import com.vaadin.flow.component.button.ButtonVariant;
 import com.vaadin.flow.component.combobox.ComboBox;
-import com.vaadin.flow.component.confirmdialog.ConfirmDialog;
+import com.transit.arctransit.common.ui.ConfirmationDialog;
 import com.vaadin.flow.component.datepicker.DatePicker;
 import com.vaadin.flow.component.dialog.Dialog;
 import com.vaadin.flow.component.formlayout.FormLayout;
 import com.vaadin.flow.component.grid.Grid;
+import com.transit.arctransit.common.ui.DataGrids;
 import com.vaadin.flow.component.html.Div;
 import com.vaadin.flow.component.html.H2;
 import com.vaadin.flow.component.html.H3;
@@ -49,8 +54,9 @@ import com.vaadin.flow.component.notification.NotificationVariant;
 import com.vaadin.flow.component.orderedlayout.FlexComponent;
 import com.vaadin.flow.component.orderedlayout.HorizontalLayout;
 import com.vaadin.flow.component.orderedlayout.VerticalLayout;
-import com.vaadin.flow.component.splitlayout.SplitLayout;
 import com.vaadin.flow.component.textfield.TextArea;
+import com.vaadin.flow.component.textfield.IntegerField;
+import org.springframework.beans.factory.annotation.Value;
 import com.vaadin.flow.component.textfield.TextField;
 import com.vaadin.flow.data.value.ValueChangeMode;
 import com.vaadin.flow.router.PageTitle;
@@ -123,19 +129,17 @@ public class DispatchView extends VerticalLayout {
     private final DriverManagementService driverService;
     private final RouteManagementService routeService;
 
+    @Value("${arc.service-zone:Asia/Manila}")
+    private String serviceZone = "Asia/Manila";
+
     // view components
 
     private final Grid<DispatchAssignmentView> grid =
-            new Grid<>();
+            DataGrids.create();
 
-    private final SplitLayout splitLayout =
-            new SplitLayout();
 
-    private final VerticalLayout sidePanel =
-            new VerticalLayout();
+    private final Dialog detailsDialog = Dialogs.details("Assignment Details");
 
-    private final Div sidePanelContent =
-            new Div();
 
     // view state
 
@@ -155,7 +159,6 @@ public class DispatchView extends VerticalLayout {
         this.routeService = routeService;
 
         configureView();
-        configureSidePanel();
         configureGrid();
 
         HorizontalLayout header =
@@ -171,20 +174,8 @@ public class DispatchView extends VerticalLayout {
         gridContainer.setPadding(false);
         gridContainer.setSpacing(false);
 
-        splitLayout.addToPrimary(
-                gridContainer
-        );
-
-        splitLayout.addToSecondary(
-                sidePanel
-        );
-
-        splitLayout.setSplitterPosition(100);
-        splitLayout.setSizeFull();
-
-        add(splitLayout);
-
-        expand(splitLayout);
+        add(gridContainer);
+        expand(gridContainer);
     }
 
     // view configuration
@@ -221,7 +212,7 @@ public class DispatchView extends VerticalLayout {
                 .set("margin", "0");
 
         TextField searchField =
-                new TextField();
+                FormInputs.text(new TextField(), 200);
 
         searchField.setPlaceholder(
                 "Search driver or route..."
@@ -261,7 +252,8 @@ public class DispatchView extends VerticalLayout {
         HorizontalLayout actions =
                 new HorizontalLayout(
                         searchField,
-                        createButton
+                        createButton,
+                        new RefreshButton(this::refreshGrid)
                 );
 
         actions.setDefaultVerticalComponentAlignment(
@@ -307,7 +299,7 @@ public class DispatchView extends VerticalLayout {
         .setSortable(true);
 
         grid.addColumn(
-                DispatchAssignmentView::scheduledDeparture
+                assignment -> formatTime(assignment.scheduledDeparture())
         )
         .setHeader("Departure")
         .setSortable(true);
@@ -339,10 +331,7 @@ public class DispatchView extends VerticalLayout {
                 )
         );
 
-        grid.addSelectionListener(event ->
-                event.getFirstSelectedItem()
-                        .ifPresent(this::showDetails)
-        );
+        grid.addItemDoubleClickListener(event -> showDetails(event.getItem()));
     }
 
     // action buttons
@@ -438,110 +427,73 @@ public class DispatchView extends VerticalLayout {
     private void showDetails(
             DispatchAssignmentView assignment) {
 
-        sidePanelContent.removeAll();
+        detailsDialog.removeAll();
+        Dialogs.field(detailsDialog, "Record ID", assignment.id());
 
-        sidePanelContent.add(
+        detailsDialog.add(
                 new Paragraph(
                         "Date: "
                                 + assignment.dispatchDate()
                 )
         );
 
-        sidePanelContent.add(
+        detailsDialog.add(
                 new Paragraph(
                         "Bus: "
                                 + assignment.fleetUnitNumber()
                 )
         );
 
-        sidePanelContent.add(
+        detailsDialog.add(
                 new Paragraph(
                         "Driver: "
                                 + assignment.driverName()
                 )
         );
 
-        sidePanelContent.add(
+        detailsDialog.add(
                 new Paragraph(
                         "Route: "
                                 + assignment.routeCode()
                 )
         );
 
-        sidePanelContent.add(
+        detailsDialog.add(
                 new Paragraph(
                         "Departure: "
-                                + assignment.scheduledDeparture()
+                                + formatTime(assignment.scheduledDeparture())
                 )
         );
 
-        sidePanelContent.add(
+        detailsDialog.add(
                 new Paragraph(
                         "Status: "
                                 + assignment.dispatchStatus()
                 )
         );
 
-        sidePanel.setVisible(true);
+        detailsDialog.add(new Paragraph("Planned arrival: " + formatTime(assignment.scheduledArrival())));
+        detailsDialog.add(new Paragraph("Reported departure: " + formatTime(assignment.actualDeparture())));
+        detailsDialog.add(new Paragraph("Reported arrival: " + formatTime(assignment.actualArrival())));
+        if (assignment.scheduleId() != null) {
+            detailsDialog.add(new Paragraph("Configured schedule: " + assignment.scheduleId()));
+        }
+        detailsDialog.add(new Paragraph("Route version: " + assignment.routeVersionId()
+                + (assignment.legacyRouteSnapshot() ? " (legacy configuration snapshot)" : "")));
+        for (var event : dispatchService.getHistory(assignment.id())) {
+            detailsDialog.add(new Paragraph(event.newStatus() + " recorded "
+                    + event.recordedAt().atZone(ZoneId.of(serviceZone)) + " by " + event.actor()));
+        }
 
-        splitLayout.setSplitterPosition(75);
+        detailsDialog.open();
     }
 
     // side panel
 
-    private void configureSidePanel() {
 
-        Button closeButton =
-                new Button(
-                        VaadinIcon.CLOSE.create(),
-                        event ->
-                                hideSidePanel()
-                );
 
-        closeButton.addThemeVariants(
-                ButtonVariant.LUMO_TERTIARY
-        );
-
-        HorizontalLayout header =
-                new HorizontalLayout(
-                        new H3("Assignment Details"),
-                        closeButton
-                );
-
-        header.setWidthFull();
-
-        header.setJustifyContentMode(
-                FlexComponent.JustifyContentMode.BETWEEN
-        );
-
-        header.setDefaultVerticalComponentAlignment(
-                FlexComponent.Alignment.CENTER
-        );
-
-        sidePanel.add(
-                header,
-                sidePanelContent
-        );
-
-        sidePanel.setVisible(false);
-        sidePanel.setWidth("350px");
-
-        sidePanel.getStyle()
-                .set(
-                        "background-color",
-                        "#ffffff"
-                )
-                .set(
-                        "border-left",
-                        "1px solid #ddd"
-                );
-    }
-
-    private void hideSidePanel() {
-
-        sidePanel.setVisible(false);
-
-        splitLayout.setSplitterPosition(100);
+    private void closeDetails() {
+        detailsDialog.close();
     }
 
     // create assignment
@@ -549,7 +501,7 @@ public class DispatchView extends VerticalLayout {
     private void openCreateDialog() {
 
         Dialog dialog =
-                new Dialog();
+                Dialogs.create();
 
         dialog.setHeaderTitle(
                 "Create Dispatch Assignment"
@@ -570,15 +522,17 @@ public class DispatchView extends VerticalLayout {
                 new DatePicker(
                         "Dispatch Date"
                 );
+        dispatchDate.setRequiredIndicatorVisible(true);
 
         dispatchDate.setValue(
-                LocalDate.now()
+                LocalDate.now(ZoneId.of(serviceZone))
         );
 
         ComboBox<LocalTime> departureTime =
-                new ComboBox<>(
+                FormInputs.choice(new ComboBox<>(
                         "Departure Time"
-                );
+                ));
+        departureTime.setRequiredIndicatorVisible(true);
 
         departureTime.setItems(
                 DEPARTURE_TIMES
@@ -589,7 +543,66 @@ public class DispatchView extends VerticalLayout {
         );
 
         TextArea notes =
-                new TextArea("Notes");
+                FormInputs.notes(new TextArea("Notes"));
+
+        ComboBox<com.transit.arctransit.route.RouteScheduleView> scheduleCombo =
+                FormInputs.choice(new ComboBox<>("Configured Schedule (optional)"));
+        scheduleCombo.setClearButtonVisible(true);
+        scheduleCombo.setItemLabelGenerator(schedule -> schedule.name() + " " + schedule.plannedDeparture());
+        Runnable reloadSchedules = () -> {
+            scheduleCombo.clear();
+            var selected = routeCombo.getValue();
+            if (selected == null || dispatchDate.getValue() == null) {
+                scheduleCombo.setItems(List.of());
+                return;
+            }
+            scheduleCombo.setItems(routeService.getSchedules(selected.id()).stream()
+                    .filter(schedule -> schedule.active() && schedule.isEffectiveOn(dispatchDate.getValue()))
+                    .toList());
+        };
+        scheduleCombo.addValueChangeListener(event -> {
+            if (event.getValue() != null) {
+                LocalTime configured = event.getValue().plannedDeparture();
+                var times = new java.util.ArrayList<>(DEPARTURE_TIMES);
+                if (!times.contains(configured)) {
+                    times.add(configured);
+                    times.sort(LocalTime::compareTo);
+                }
+                departureTime.setItems(times);
+                departureTime.setValue(configured);
+            }
+        });
+
+        IntegerField plannedDuration = FormInputs.integer(new IntegerField("Planned Duration (min)"), 1, 2147483647);
+        plannedDuration.setMin(1);
+        plannedDuration.setRequiredIndicatorVisible(true);
+        routeCombo.addValueChangeListener(event -> {
+            reloadSchedules.run();
+            var selected = event.getValue();
+            if (selected != null && dispatchDate.getValue() != null) {
+                try {
+                    plannedDuration.setValue(routeService.getEffectiveVersion(selected.id(),
+                            dispatchDate.getValue()).estimatedDurationMinutes());
+                } catch (RuntimeException exception) {
+                    plannedDuration.clear();
+                    showError("Load route version", exception);
+                }
+            }
+        });
+
+        dispatchDate.addValueChangeListener(event -> {
+            reloadSchedules.run();
+            var selected = routeCombo.getValue();
+            if (selected != null && event.getValue() != null) {
+                try {
+                    plannedDuration.setValue(routeService.getEffectiveVersion(selected.id(),
+                            event.getValue()).estimatedDurationMinutes());
+                } catch (RuntimeException exception) {
+                    plannedDuration.clear();
+                    showError("Load route version", exception);
+                }
+            }
+        });
 
         FormLayout form =
                 new FormLayout(
@@ -597,7 +610,9 @@ public class DispatchView extends VerticalLayout {
                         driverCombo,
                         routeCombo,
                         dispatchDate,
+                        scheduleCombo,
                         departureTime,
+                        plannedDuration,
                         notes
                 );
 
@@ -607,6 +622,10 @@ public class DispatchView extends VerticalLayout {
                 new Button(
                         "Create Assignment",
                         event -> {
+                            if (!FormInputs.validate(dialog)) {
+                                return;
+                            }
+
 
                             try {
 
@@ -617,6 +636,8 @@ public class DispatchView extends VerticalLayout {
                                                 routeCombo,
                                                 dispatchDate,
                                                 departureTime,
+                                                plannedDuration,
+                                                scheduleCombo,
                                                 notes
                                         );
 
@@ -667,27 +688,12 @@ public class DispatchView extends VerticalLayout {
     createBusCombo() {
 
         ComboBox<FleetUnitSummaryView> combo =
-                new ComboBox<>("Bus");
+                FormInputs.choice(new ComboBox<>("Bus"));
 
-        List<FleetUnitSummaryView> buses =
-                fleetService
-                        .searchUnits(
-                                new FleetUnitQuery(
-                                        null,
-                                        null
-                                ),
-                                PageRequest.of(0, 100)
-                        )
-                        .getContent()
-                        .stream()
-                        .filter(unit ->
-                                "ACTIVE".equals(
-                                        unit.operationalStatus()
-                                )
-                        )
-                        .toList();
-
-        combo.setItems(buses);
+        combo.setItems(query -> fleetService.searchUnits(new FleetUnitQuery(query.getFilter().orElse(""), "ACTIVE"),
+                PageRequest.of(query.getPage(), query.getPageSize(),
+                        org.springframework.data.domain.Sort.by("id"))).stream());
+        combo.setPlaceholder("Type to search");
 
         combo.setItemLabelGenerator(
                 bus ->
@@ -710,30 +716,12 @@ public class DispatchView extends VerticalLayout {
     createDriverCombo() {
 
         ComboBox<DriverSummaryView> combo =
-                new ComboBox<>("Driver");
+                FormInputs.choice(new ComboBox<>("Driver"));
 
-        List<DriverSummaryView> drivers =
-                driverService
-                        .searchDrivers(
-                                new DriverQuery(
-                                        null,
-                                        null
-                                ),
-                                PageRequest.of(0, 100)
-                        )
-                        .getContent()
-                        .stream()
-                        .filter(driver ->
-                                "ACTIVE".equals(
-                                        driver.employmentStatus()
-                                )
-                        )
-                        .filter(driver ->
-                                !driver.licenseExpired()
-                        )
-                        .toList();
-
-        combo.setItems(drivers);
+        combo.setItems(query -> driverService.searchDispatchCandidates(query.getFilter().orElse(""),
+                PageRequest.of(query.getPage(), query.getPageSize(),
+                        org.springframework.data.domain.Sort.by("id"))).stream());
+        combo.setPlaceholder("Type to search");
 
         combo.setItemLabelGenerator(
                 driver ->
@@ -756,27 +744,12 @@ public class DispatchView extends VerticalLayout {
     createRouteCombo() {
 
         ComboBox<RouteSummaryView> combo =
-                new ComboBox<>("Route");
+                FormInputs.choice(new ComboBox<>("Route"));
 
-        List<RouteSummaryView> routes =
-                routeService
-                        .searchRoutes(
-                                new RouteQuery(
-                                        null,
-                                        "ACTIVE"
-                                ),
-                                PageRequest.of(0, 100)
-                        )
-                        .getContent()
-                        .stream()
-                        .filter(route ->
-                                "ACTIVE".equals(
-                                        route.routeStatus()
-                                )
-                        )
-                        .toList();
-
-        combo.setItems(routes);
+        combo.setItems(query -> routeService.searchRoutes(new RouteQuery(query.getFilter().orElse(""), "ACTIVE"),
+                PageRequest.of(query.getPage(), query.getPageSize(),
+                        org.springframework.data.domain.Sort.by("id"))).stream());
+        combo.setPlaceholder("Type to search");
 
         combo.setItemLabelGenerator(
                 route ->
@@ -800,6 +773,8 @@ public class DispatchView extends VerticalLayout {
             ComboBox<RouteSummaryView> routeCombo,
             DatePicker dispatchDate,
             ComboBox<LocalTime> departureTime,
+            IntegerField plannedDuration,
+            ComboBox<com.transit.arctransit.route.RouteScheduleView> scheduleCombo,
             TextArea notes) {
 
         FleetUnitSummaryView selectedBus =
@@ -821,9 +796,10 @@ public class DispatchView extends VerticalLayout {
                 || selectedDriver == null
                 || selectedRoute == null
                 || selectedDate == null
-                || selectedTime == null) {
+                || selectedTime == null
+                || plannedDuration.getValue() == null || plannedDuration.getValue() <= 0) {
 
-            throw new IllegalArgumentException(
+            throw new com.transit.arctransit.common.exception.CommandValidationException(
                     "Please fill all required fields."
             );
         }
@@ -832,7 +808,7 @@ public class DispatchView extends VerticalLayout {
                 ZonedDateTime.of(
                         selectedDate,
                         selectedTime,
-                        ZoneId.systemDefault()
+                        ZoneId.of(serviceZone)
                 );
 
         return new CreateDispatchCommand(
@@ -841,10 +817,11 @@ public class DispatchView extends VerticalLayout {
                 selectedRoute.id(),
                 selectedDate,
                 departure.toInstant(),
-                null,
+                departure.toInstant().plusSeconds(plannedDuration.getValue() * 60L),
                 normalizeOptional(
                         notes.getValue()
-                )
+                ),
+                scheduleCombo.getValue() == null ? null : scheduleCombo.getValue().id()
         );
     }
 
@@ -929,8 +906,8 @@ public class DispatchView extends VerticalLayout {
     private void openArchiveDialog(
             DispatchAssignmentView assignment) {
 
-        ConfirmDialog dialog =
-                new ConfirmDialog();
+        ConfirmationDialog dialog =
+                new ConfirmationDialog();
 
         dialog.setHeader(
                 "Archive Assignment?"
@@ -965,7 +942,7 @@ public class DispatchView extends VerticalLayout {
 
                         refreshGrid();
 
-                        hideSidePanel();
+                        closeDetails();
 
                         showSuccess(
                                 "Assignment archived successfully."
@@ -982,6 +959,12 @@ public class DispatchView extends VerticalLayout {
         );
 
         dialog.open();
+    }
+
+    private String formatTime(String value) {
+        return value == null ? "Not recorded"
+                : Instant.parse(value).atZone(ZoneId.of(serviceZone))
+                        .format(DateTimeFormatter.ofPattern("uuuu-MM-dd HH:mm z"));
     }
 
     // refresh grid
@@ -1119,10 +1102,7 @@ public class DispatchView extends VerticalLayout {
     private void showError(
             String operation,
             RuntimeException exception) {
-
-        showErrorNotification(
-                exception.getMessage()
-        );
+        com.transit.arctransit.common.ui.ApplicationErrors.show(exception);
     }
 
     // error notification

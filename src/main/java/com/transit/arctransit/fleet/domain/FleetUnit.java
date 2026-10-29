@@ -56,6 +56,17 @@ public class FleetUnit {
     )
     private OperationalStatus operationalStatus;
 
+    @Enumerated(EnumType.STRING)
+    @Column(name = "administrative_status", nullable = false, length = 30)
+    private AdministrativeStatus administrativeStatus;
+
+    @Enumerated(EnumType.STRING)
+    @Column(name = "availability", nullable = false, length = 30)
+    private VehicleAvailability availability;
+
+    @Column(name = "availability_effective_at", nullable = false)
+    private Instant availabilityEffectiveAt;
+
     @Column(name = "created_at", nullable = false)
     private Instant createdAt;
 
@@ -79,11 +90,15 @@ public class FleetUnit {
 		            VehicleType vehicleType,
 		            short capacity) {
 
+    requireCapacity(capacity);
     this.unitNumber = unitNumber;
     this.plateNumber = plateNumber;
     this.vehicleType = vehicleType;
     this.capacity = capacity;
     this.operationalStatus = OperationalStatus.INACTIVE;
+    this.administrativeStatus = AdministrativeStatus.INACTIVE;
+    this.availability = VehicleAvailability.UNKNOWN;
+    this.availabilityEffectiveAt = Instant.now();
 
     Instant now = Instant.now();
     
@@ -115,8 +130,24 @@ public class FleetUnit {
             		throw new IllegalArgumentException("Operational status cannot be null.");
         }
 
-    this.operationalStatus = newStatus;
-    this.updatedAt = Instant.now();
+        switch (newStatus) {
+            case ACTIVE -> {
+                administrativeStatus = AdministrativeStatus.ACTIVE;
+                availability = VehicleAvailability.AVAILABLE;
+            }
+            case INACTIVE -> administrativeStatus = AdministrativeStatus.INACTIVE;
+            case UNDER_MAINTENANCE -> {
+                administrativeStatus = AdministrativeStatus.ACTIVE;
+                availability = VehicleAvailability.MAINTENANCE;
+            }
+            case OUT_OF_SERVICE -> {
+                administrativeStatus = AdministrativeStatus.ACTIVE;
+                availability = VehicleAvailability.OUT_OF_SERVICE;
+            }
+        }
+        this.availabilityEffectiveAt = Instant.now();
+        synchronizeOperationalStatus();
+        this.updatedAt = Instant.now();
     }
 
     // archives the bus fleet unit
@@ -149,10 +180,17 @@ public class FleetUnit {
 				            String plateNumber,
 				            short capacity) {
 
+    requireCapacity(capacity);
     this.unitNumber = unitNumber;
     this.plateNumber = plateNumber;
     this.capacity = capacity;
     this.updatedAt = Instant.now();
+    }
+
+    private static void requireCapacity(short capacity) {
+        if (capacity < 1 || capacity > 80) {
+            throw new IllegalArgumentException("Capacity must be between 1 and 80 passengers.");
+        }
     }
 
     // state queries
@@ -166,7 +204,44 @@ public class FleetUnit {
      // operationally available for dispatch.
     public boolean isAvailableForDispatch() {
 								        return !isArchived()
-								        && operationalStatus == OperationalStatus.ACTIVE;
+								        && administrativeStatus == AdministrativeStatus.ACTIVE
+                                        && availability == VehicleAvailability.AVAILABLE;
+    }
+
+    public void changeAdministrativeStatus(AdministrativeStatus status) {
+        this.administrativeStatus = java.util.Objects.requireNonNull(status);
+        synchronizeOperationalStatus();
+        this.updatedAt = Instant.now();
+    }
+
+    public void changeAvailability(VehicleAvailability availability, Instant effectiveAt) {
+        this.availability = java.util.Objects.requireNonNull(availability);
+        this.availabilityEffectiveAt = java.util.Objects.requireNonNull(effectiveAt);
+        synchronizeOperationalStatus();
+        this.updatedAt = Instant.now();
+    }
+
+    private void synchronizeOperationalStatus() {
+        this.operationalStatus = administrativeStatus == AdministrativeStatus.INACTIVE
+                ? OperationalStatus.INACTIVE
+                : switch (availability) {
+                    case AVAILABLE -> OperationalStatus.ACTIVE;
+                    case MAINTENANCE -> OperationalStatus.UNDER_MAINTENANCE;
+                    case OUT_OF_SERVICE -> OperationalStatus.OUT_OF_SERVICE;
+                    default -> OperationalStatus.INACTIVE;
+                };
+    }
+
+    public AdministrativeStatus getAdministrativeStatus() {
+        return administrativeStatus;
+    }
+
+    public VehicleAvailability getAvailability() {
+        return availability;
+    }
+
+    public Instant getAvailabilityEffectiveAt() {
+        return availabilityEffectiveAt;
     }
 
     // getters

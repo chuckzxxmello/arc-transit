@@ -1,9 +1,15 @@
 package com.transit.arctransit.auth.ui;
 
+import com.transit.arctransit.common.ui.RefreshButton;
 // auth module
+import com.transit.arctransit.common.ui.FormInputs;
+
 import com.transit.arctransit.auth.CreateUserCommand;
+import com.transit.arctransit.auth.PasswordPolicy;
 import com.transit.arctransit.auth.CurrentUserView;
-import com.transit.arctransit.auth.ReplaceUserRolesCommand;
+import com.transit.arctransit.auth.UpdateUserCommand;
+import com.transit.arctransit.auth.UserView;
+import com.vaadin.flow.spring.security.AuthenticationContext;
 import com.transit.arctransit.auth.UserAdministrationService;
 import com.transit.arctransit.auth.UserQuery;
 import com.transit.arctransit.auth.UserSummaryView;
@@ -19,10 +25,12 @@ import com.vaadin.flow.component.confirmdialog.ConfirmDialog;
 import com.vaadin.flow.component.dialog.Dialog;
 import com.vaadin.flow.component.formlayout.FormLayout;
 import com.vaadin.flow.component.grid.Grid;
+import com.transit.arctransit.common.ui.DataGrids;
 import com.vaadin.flow.component.html.Div;
 import com.vaadin.flow.component.html.H2;
 import com.vaadin.flow.component.html.H3;
 import com.vaadin.flow.component.html.Paragraph;
+import com.vaadin.flow.component.html.Span;
 import com.vaadin.flow.component.icon.VaadinIcon;
 import com.vaadin.flow.component.notification.Notification;
 import com.vaadin.flow.component.notification.NotificationVariant;
@@ -36,15 +44,15 @@ import com.vaadin.flow.data.value.ValueChangeMode;
 import com.vaadin.flow.router.PageTitle;
 import com.vaadin.flow.router.Route;
 
-import com.vaadin.flow.data.binder.ValidationException;
-
 import jakarta.annotation.security.RolesAllowed;
+import jakarta.validation.ConstraintViolationException;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.util.List;
 import java.util.Set;
+import java.util.stream.Collectors;
 
 // user dashboard for SYSTEM_ADMINs
 // provides the user-management interface for:
@@ -52,7 +60,7 @@ import java.util.Set;
 //		-> creating staff accounts
 //		-> resetting passwords
 //		-> changing assigned roles
-//		-> deleting staff accounts
+//		-> archiving staff accounts
 
 @Route(value = "admin/users", layout = MainLayout.class)
 @PageTitle("User Administration")
@@ -68,6 +76,7 @@ public class UserAdministrationView extends VerticalLayout {
     );
 
     private final UserAdministrationService userService;
+    private final AuthenticationContext authenticationContext;
     private final Grid<UserSummaryView> grid;
     private final SplitLayout splitLayout = new SplitLayout();
     private final VerticalLayout sidePanel = new VerticalLayout();
@@ -75,8 +84,9 @@ public class UserAdministrationView extends VerticalLayout {
 
     private String searchKeyword = "";
 
-    public UserAdministrationView(UserAdministrationService userService) {
+    public UserAdministrationView(UserAdministrationService userService, AuthenticationContext authenticationContext) {
         this.userService = userService;
+        this.authenticationContext = authenticationContext;
         configureView();
 
         this.grid = createGrid();
@@ -98,7 +108,7 @@ public class UserAdministrationView extends VerticalLayout {
     private Grid<UserSummaryView> createGrid() {
 
         Grid<UserSummaryView> userGrid =
-                new Grid<>(UserSummaryView.class, false);
+                DataGrids.create(UserSummaryView.class, false);
 
         userGrid.setSizeFull();
 
@@ -165,7 +175,7 @@ public class UserAdministrationView extends VerticalLayout {
         H2 title = new H2("User Administration");
         title.getStyle().set("margin", "0");
 
-        TextField searchField = new TextField();
+        TextField searchField = FormInputs.text(new TextField(), 200);
 
         searchField.setPlaceholder("Search users...");
         searchField.setPrefixComponent(
@@ -192,8 +202,9 @@ public class UserAdministrationView extends VerticalLayout {
 
         HorizontalLayout actions = new HorizontalLayout(
                         searchField,
-                        createButton
-        );
+                        createButton,
+                        new RefreshButton(this::refreshGrid)
+                );
 
         headerLayout.add(
                 title,
@@ -230,9 +241,9 @@ public class UserAdministrationView extends VerticalLayout {
         );
 
         Button changeRoleButton =
-                new Button("Update Role",
+                new Button("Edit Account",
                         event ->
-                                openChangeRoleDialog(user.username())
+                                openEditDialog(user.username())
                 );
 
         changeRoleButton.addThemeVariants(
@@ -240,7 +251,7 @@ public class UserAdministrationView extends VerticalLayout {
         );
 
         Button deleteUserButton =
-                new Button("Delete Account",
+                new Button("Archive Account",
                         event ->
                                 openDeleteUserDialog(user.username())
                 );
@@ -320,22 +331,16 @@ public class UserAdministrationView extends VerticalLayout {
 
         dialog.setHeaderTitle("Create Staff Account");
 
-        TextField username = new TextField("Username");
+        TextField username = FormInputs.text(new TextField("Username"), 50);
         username.setRequired(true);
 
-        PasswordField password = new PasswordField("Password");
-        password.setRequired(true);
+        PasswordField password = createPasswordField("Password");
 
-        password.setHelperText(
-                "At least 8 characters with uppercase, " +
-                "lowercase, number, and special character."
-        );
-
-        TextField displayName = new TextField("Display Name");
+        TextField displayName = FormInputs.text(new TextField("Display Name"), 100);
         displayName.setRequired(true);
 
         TextField email =
-                new TextField("Email (Optional)");
+                FormInputs.text(new TextField("Email (Optional)"), 200);
 
         ComboBox<String> role =
                 createRoleSelector("Role");
@@ -354,6 +359,13 @@ public class UserAdministrationView extends VerticalLayout {
         Button saveButton =
                 new Button("Save",
                         event -> {
+                            if (!FormInputs.validate(dialog)) {
+                                return;
+                            }
+
+                            if (!validatePasswordField(password)) {
+                                return;
+                            }
                             String selectedRole = role.getValue();
 
                             if (selectedRole == null || selectedRole.isBlank()) {
@@ -399,65 +411,65 @@ public class UserAdministrationView extends VerticalLayout {
         dialog.open();
     }
 
-// CHANGE ROLE
-    private void openChangeRoleDialog(String username) {
-        
-    	Dialog dialog = new Dialog();
-        dialog.setHeaderTitle("Update Role for " + username);
-
+// EDIT ACCOUNT
+    private void openEditDialog(String selectedUsername) {
+        UserView account;
+        try {
+            account = userService.getUser(selectedUsername);
+        } catch (Exception exception) {
+            showError("Load account", exception);
+            return;
+        }
+        Dialog dialog = new Dialog();
+        dialog.setHeaderTitle("Edit Staff Account");
+        dialog.setWidth("760px");
+        dialog.setMaxWidth("calc(100vw - 48px)");
+        TextField username = FormInputs.text(new TextField("Username"), 50);
+        username.setRequiredIndicatorVisible(true);
+        username.setValue(account.username());
+        username.setHelperText("Previous usernames remain reserved for account history.");
+        TextField displayName = FormInputs.text(new TextField("Display Name"), 100);
+        displayName.setRequiredIndicatorVisible(true);
+        displayName.setValue(account.displayName());
+        TextField email = FormInputs.text(new TextField("Email (Optional)"), 200);
+        email.setValue(account.email() == null ? "" : account.email());
         ComboBox<String> roleCombo = createRoleSelector("Access Role");
-        roleCombo.setRequired(true);
-
-        FormLayout formLayout = new FormLayout(roleCombo);
-
-        Button saveButton = new Button("Update Role",
-                        event -> {
-                            String selectedRole = roleCombo.getValue();
-
-                            if (selectedRole == null || selectedRole.isBlank()) {
-
-                                showError("Update role",
-                                        new IllegalArgumentException("Select an access role.")
-                                );
-                            return;
-                            }
-
-                            try {
-
-                                userService.replaceRoles(
-                                        new ReplaceUserRolesCommand(
-                                                username,
-                                                Set.of(selectedRole)
-                                        )
-                                );
-
-                                dialog.close();
-
-                                refreshGrid();
-
-                                hideSidePanel();
-
-                                showSuccess("User role updated successfully.");
-
-                            } catch (Exception exception) {
-
-                                showError("Update role",exception);
-                            }
-                        }
-                );
-
-        saveButton.addThemeVariants(ButtonVariant.LUMO_PRIMARY);
-
-        Button cancelButton = new Button("Cancel",
-                        event -> dialog.close()
-        );
-
-        dialog.getFooter().add(
-                cancelButton,
-                saveButton
-        );
-
-        dialog.add(formLayout);
+        String initialRole = account.roles().contains(SYSTEM_ADMIN_ROLE)
+                ? SYSTEM_ADMIN_ROLE : account.roles().stream().findFirst().orElse(null);
+        if (initialRole != null) {
+            roleCombo.setValue(initialRole);
+        }
+        if (account.roles().size() > 1) {
+            roleCombo.setHelperText("Changing this selection replaces the account's existing roles.");
+        }
+        FormLayout form = new FormLayout(username, displayName, email, roleCombo);
+        form.setWidthFull();
+        dialog.add(form, new Paragraph("Changing your own username or role requires signing in again."));
+        Button save = new Button("Save Changes", event -> {
+            if (!FormInputs.validate(dialog)) {
+                return;
+            }
+            Set<String> roles = java.util.Objects.equals(initialRole, roleCombo.getValue())
+                    ? account.roles() : Set.of(roleCombo.getValue());
+            try {
+                UserView updated = userService.updateUser(new UpdateUserCommand(account.id(), account.version(),
+                        username.getValue(), displayName.getValue(), normalizeOptionalValue(email.getValue()), roles));
+                dialog.close();
+                var authentication = org.springframework.security.core.context.SecurityContextHolder.getContext().getAuthentication();
+                boolean ownAccount = authentication != null && account.username().equalsIgnoreCase(authentication.getName());
+                if (ownAccount && (!account.username().equals(updated.username()) || !account.roles().equals(updated.roles()))) {
+                    authenticationContext.logout();
+                    return;
+                }
+                refreshGrid();
+                hideSidePanel();
+                showSuccess("Account updated successfully.");
+            } catch (Exception exception) {
+                showError("Update account", exception);
+            }
+        });
+        save.addThemeVariants(ButtonVariant.LUMO_PRIMARY);
+        dialog.getFooter().add(new Button("Cancel", event -> dialog.close()), save);
         dialog.open();
     }
 
@@ -466,14 +478,24 @@ public class UserAdministrationView extends VerticalLayout {
 
         Dialog dialog = new Dialog();
         dialog.setHeaderTitle("Reset Password for " + username);
+        dialog.setWidth("520px");
+        dialog.setMaxWidth("calc(100vw - 48px)");
 
-        PasswordField password = new PasswordField("New Password");
-        password.setRequired(true);
+        PasswordField password = createPasswordField("New Password");
 
         FormLayout formLayout = new FormLayout(password);
+        formLayout.setWidthFull();
+        formLayout.setResponsiveSteps(new FormLayout.ResponsiveStep("0", 1));
 
         Button saveButton = new Button("Reset",
                         event -> {
+                            if (!FormInputs.validate(dialog)) {
+                                return;
+                            }
+
+                            if (!validatePasswordField(password)) {
+                                return;
+                            }
                             try {
 
                                 userService.resetPassword(
@@ -510,26 +532,64 @@ public class UserAdministrationView extends VerticalLayout {
         dialog.open();
     }
 
+    private PasswordField createPasswordField(String label) {
+        PasswordField password = new PasswordField(label);
+        password.setMaxLength(PasswordPolicy.MAX_LENGTH);
+        password.setWidthFull();
+        password.setRequiredIndicatorVisible(true);
+        password.setManualValidation(true);
+        password.setValueChangeMode(ValueChangeMode.EAGER);
+
+        Span strength = new Span("Password strength: weak");
+        strength.setVisible(false);
+        strength.getStyle().set("display", "block").set("font-weight", "600");
+        strength.getElement().setAttribute("role", "status");
+        strength.getElement().setAttribute("aria-live", "polite");
+        strength.getElement().setAttribute("title",
+                "Estimate based on length, character variety and common patterns.");
+        password.setHelperComponent(new Div(new Span(PasswordPolicy.MESSAGE), strength));
+        password.addValueChangeListener(event -> {
+            strength.setVisible(!event.getValue().isEmpty());
+            String level = PasswordPolicy.estimatedStrength(event.getValue());
+            strength.setText("Password strength: " + level);
+            String color = switch (level) {
+                case "moderate" -> "var(--lumo-warning-text-color, #935d00)";
+                case "strong", "very strong" -> "var(--lumo-success-text-color, #18713c)";
+                default -> "var(--lumo-error-text-color, #b42318)";
+            };
+            strength.getStyle().set("color", color);
+            validatePasswordField(password);
+        });
+        password.addBlurListener(event -> validatePasswordField(password));
+        return password;
+    }
+
+    private boolean validatePasswordField(PasswordField password) {
+        String message = PasswordPolicy.validationMessage(password.getValue());
+        password.setErrorMessage(message == null ? "" : message);
+        password.setInvalid(message != null);
+        return message == null;
+    }
+
 // DELETE USER
     private void openDeleteUserDialog(String username) {
 
         ConfirmDialog dialog = new ConfirmDialog();
 
         dialog.setHeader(
-                "Delete User Account: " +
+                "Archive User Account: " +
                 username +
                 "?"
         );
 
         dialog.setText(
-                "Are you sure you want to permanently " +
-                "delete this staff account? " +
-                "This action cannot be undone."
+                "Archive and disable this staff account? " +
+                "Its identity and role history will be retained."
         );
 
         dialog.setCancelable(true);
 
-        dialog.setConfirmText("Delete Account");
+        dialog.setConfirmText("Archive Account");
 
         dialog.setConfirmButtonTheme("error primary");
 
@@ -543,11 +603,11 @@ public class UserAdministrationView extends VerticalLayout {
 
                 hideSidePanel();
 
-                showSuccess("User deleted successfully.");
+                showSuccess("User archived successfully.");
 
             } catch (Exception exception) {
 
-                showError("Delete user",
+                showError("Archive user",
                         exception
                 );
             }
@@ -567,7 +627,7 @@ public class UserAdministrationView extends VerticalLayout {
     private ComboBox<String> createRoleSelector(
             String label) {
 
-        ComboBox<String> roleCombo = new ComboBox<>(label);
+        ComboBox<String> roleCombo = FormInputs.choice(new ComboBox<>(label));
         roleCombo.setItems(SUPPORTED_ROLES);
         roleCombo.setRequiredIndicatorVisible(true);
         return roleCombo;
@@ -608,34 +668,7 @@ public class UserAdministrationView extends VerticalLayout {
     private void showError(
             String operation,
             Exception exception) {
-    	
-        log.error(
-                "{} failed.",
-                operation,
-                exception
-        );
-
-        String userMessage;
-
-        if (exception instanceof RuntimeException runtimeException && isSafeApplicationException(
-        runtimeException)) {
-            userMessage = runtimeException.getMessage();
-
-        } else {
-            userMessage =
-                    "The operation could not be completed. " +
-                    "Please try again.";
-        }
-
-        if (userMessage == null || userMessage.isBlank()) {
-            userMessage =
-                    "The operation could not be completed. " +
-                    "Please try again.";
-        }
-
-        Notification.show(userMessage).addThemeVariants(
-        		NotificationVariant.LUMO_ERROR
-        );
+        com.transit.arctransit.common.ui.ApplicationErrors.show(exception);
     }
 
     private static boolean isSafeApplicationException(RuntimeException exception) {

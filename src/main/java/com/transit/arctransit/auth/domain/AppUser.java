@@ -86,6 +86,17 @@ public class AppUser {
         this.updatedAt = this.createdAt;
     }
 
+    public void updateProfile(String username, String displayName, String email) {
+        this.username = username;
+        this.displayName = displayName;
+        this.email = email;
+        this.updatedAt = Instant.now();
+    }
+
+    public Long getVersion() {
+        return version;
+    }
+
     // change user account state
     public void changeAccountStatus(AccountStatus newStatus) {
         this.accountStatus = newStatus;

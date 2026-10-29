@@ -11,4 +11,9 @@ public interface AuditRecordingService {
             Long entityId,
             String details
     );
+    void recordDeniedAction(String username, String action);
+
+    void recordFailure(String actionName, String entityName, Long entityId, String details);
+
+    void recordAuthentication(String username, boolean successful, String failureType);
 }

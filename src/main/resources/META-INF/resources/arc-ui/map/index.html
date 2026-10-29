@@ -1,0 +1,47 @@
+<!doctype html>
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="referrer" content="strict-origin-when-cross-origin">
+    <title>Cavite road map and weather reference</title>
+    <link rel="stylesheet" href="vendor/leaflet.css">
+    <link rel="stylesheet" href="map.css">
+    <script defer src="vendor/leaflet.js"></script>
+    <script defer src="map.js"></script>
+</head>
+<body>
+    <header>
+        <strong>Road map &amp; weather</strong>
+        <label for="area">Area</label>
+        <select id="area">
+            <option value="14.3294,120.9367">Dasmarinas</option>
+            <option value="14.4583,120.9583">Bacoor</option>
+            <option value="14.4297,120.9367">Imus</option>
+            <option value="14.1153,120.9621">Tagaytay</option>
+            <option value="14.5995,120.9842">Manila</option>
+        </select>
+        <button id="home" title="Show Cavite area">Cavite view</button>
+    </header>
+    <main>
+        <div id="map" aria-label="Interactive OpenStreetMap road reference"></div>
+        <p id="tile-status" role="status" hidden></p>
+        <section id="weather" aria-label="Selected location weather">
+            <div class="weather-heading"><strong id="place">Dasmarinas</strong>
+                <button id="refresh" aria-label="Refresh weather" title="Refresh weather">&#8635;</button></div>
+            <p id="condition" role="status">Loading weather...</p>
+            <dl>
+                <div><dt>Temperature</dt><dd id="temperature">--</dd></div>
+                <div><dt>Wind</dt><dd id="wind">--</dd></div>
+                <div><dt>Precipitation</dt><dd id="rain">--</dd></div>
+                <div><dt>Rain chance, next 3h</dt><dd id="chance">--</dd></div>
+            </dl>
+            <small id="weather-time"></small>
+            <small>Forecast model reference. Click the map to choose a location.</small>
+            <small><a href="https://open-meteo.com/" target="_blank" rel="noopener noreferrer">Weather data by Open-Meteo</a>
+                / <a href="https://creativecommons.org/licenses/by/4.0/" target="_blank" rel="noopener noreferrer">CC BY 4.0</a></small>
+        </section>
+    </main>
+    <footer>External reference only. No traffic feed or vehicle tracking. Saved operations are unchanged.</footer>
+</body>
+</html>

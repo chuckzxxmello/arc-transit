@@ -78,6 +78,13 @@ public class Driver {
     )
     private EmploymentStatus employmentStatus;
 
+    @Enumerated(EnumType.STRING)
+    @Column(name = "availability", nullable = false, length = 30)
+    private DriverAvailability availability;
+
+    @Column(name = "availability_effective_at", nullable = false)
+    private Instant availabilityEffectiveAt;
+
     @Column(name = "created_at", nullable = false)
     private Instant createdAt;
 
@@ -106,6 +113,7 @@ public class Driver {
             LocalDate licenseExpiryDate,
             String contactNumber) {
 
+        requireContactNumber(contactNumber);
         this.employeeNumber = employeeNumber;
         this.firstName = firstName;
         this.lastName = lastName;
@@ -114,6 +122,8 @@ public class Driver {
         this.licenseExpiryDate = licenseExpiryDate;
         this.contactNumber = contactNumber;
         this.employmentStatus = EmploymentStatus.ACTIVE;
+        this.availability = DriverAvailability.UNKNOWN;
+        this.availabilityEffectiveAt = Instant.now();
 
         Instant now = Instant.now();
 
@@ -193,6 +203,7 @@ public class Driver {
             LocalDate licenseExpiryDate,
             String contactNumber) {
 
+        requireContactNumber(contactNumber);
         this.employeeNumber = employeeNumber;
         this.firstName = firstName;
         this.lastName = lastName;
@@ -201,6 +212,27 @@ public class Driver {
         this.licenseExpiryDate = licenseExpiryDate;
         this.contactNumber = contactNumber;
         this.updatedAt = Instant.now();
+    }
+
+    public void changeAvailability(DriverAvailability availability, Instant effectiveAt) {
+        this.availability = java.util.Objects.requireNonNull(availability);
+        this.availabilityEffectiveAt = java.util.Objects.requireNonNull(effectiveAt);
+        this.updatedAt = Instant.now();
+    }
+
+    private static void requireContactNumber(String value) {
+        if (value != null && !value.isEmpty() && !value.matches("09[0-9]{9}")) {
+            throw new com.transit.arctransit.common.exception.CommandValidationException(
+                    "Use an 11-digit mobile number starting with 09, such as 09691477344.");
+        }
+    }
+
+    public DriverAvailability getAvailability() {
+        return availability;
+    }
+
+    public Instant getAvailabilityEffectiveAt() {
+        return availabilityEffectiveAt;
     }
 
     // getters

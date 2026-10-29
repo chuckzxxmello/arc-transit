@@ -1,6 +1,10 @@
 package com.transit.arctransit.route.ui;
 
+import com.transit.arctransit.common.ui.RefreshButton;
+import com.transit.arctransit.common.ui.Dialogs;
 // route module
+
+import com.transit.arctransit.common.ui.FormInputs;
 
 import com.transit.arctransit.route.CreateRouteCommand;
 import com.transit.arctransit.route.RouteManagementService;
@@ -22,10 +26,16 @@ import com.transit.arctransit.common.ui.MainLayout;
 import com.vaadin.flow.component.button.Button;
 import com.vaadin.flow.component.button.ButtonVariant;
 import com.vaadin.flow.component.combobox.ComboBox;
-import com.vaadin.flow.component.confirmdialog.ConfirmDialog;
+import com.transit.arctransit.common.ui.ConfirmationDialog;
 import com.vaadin.flow.component.dialog.Dialog;
+import com.vaadin.flow.component.datepicker.DatePicker;
+import com.vaadin.flow.component.timepicker.TimePicker;
+import org.springframework.beans.factory.annotation.Value;
+import java.time.LocalDate;
+import java.time.ZoneId;
 import com.vaadin.flow.component.formlayout.FormLayout;
 import com.vaadin.flow.component.grid.Grid;
+import com.transit.arctransit.common.ui.DataGrids;
 import com.vaadin.flow.component.html.Div;
 import com.vaadin.flow.component.html.H2;
 import com.vaadin.flow.component.html.H3;
@@ -36,7 +46,6 @@ import com.vaadin.flow.component.notification.NotificationVariant;
 import com.vaadin.flow.component.orderedlayout.FlexComponent;
 import com.vaadin.flow.component.orderedlayout.HorizontalLayout;
 import com.vaadin.flow.component.orderedlayout.VerticalLayout;
-import com.vaadin.flow.component.splitlayout.SplitLayout;
 import com.vaadin.flow.component.textfield.IntegerField;
 import com.vaadin.flow.component.textfield.TextArea;
 import com.vaadin.flow.component.textfield.TextField;
@@ -95,22 +104,20 @@ public class RouteManagementView
 
     private final RouteManagementService routeService;
 
+    @Value("${arc.service-zone:Asia/Manila}")
+    private String serviceZone = "Asia/Manila";
+
     private final transient AuthenticationContext
             authenticationContext;
 
     // components
 
     private final Grid<RouteSummaryView> grid =
-            new Grid<>();
+            DataGrids.create();
 
-    private final SplitLayout splitLayout =
-            new SplitLayout();
 
-    private final VerticalLayout sidePanel =
-            new VerticalLayout();
+    private final Dialog detailsDialog = Dialogs.details("Route Details");
 
-    private final Div sidePanelContent =
-            new Div();
 
     // state
 
@@ -127,7 +134,6 @@ public class RouteManagementView
                 authenticationContext;
 
         configureView();
-        configureSidePanel();
         configureGrid();
 
         HorizontalLayout header =
@@ -143,20 +149,8 @@ public class RouteManagementView
         gridContainer.setPadding(false);
         gridContainer.setSpacing(false);
 
-        splitLayout.addToPrimary(
-                gridContainer
-        );
-
-        splitLayout.addToSecondary(
-                sidePanel
-        );
-
-        splitLayout.setSplitterPosition(100);
-        splitLayout.setSizeFull();
-
-        add(splitLayout);
-
-        expand(splitLayout);
+        add(gridContainer);
+        expand(gridContainer);
     }
 
     // view configuration
@@ -193,7 +187,7 @@ public class RouteManagementView
                 .set("margin", "0");
 
         TextField searchField =
-                new TextField();
+                FormInputs.text(new TextField(), 200);
 
         searchField.setPlaceholder(
                 "Search route code or name..."
@@ -233,7 +227,8 @@ public class RouteManagementView
         HorizontalLayout actions =
                 new HorizontalLayout(
                         searchField,
-                        createButton
+                        createButton,
+                        new RefreshButton(this::refreshGrid)
                 );
 
         actions.setDefaultVerticalComponentAlignment(
@@ -312,10 +307,7 @@ public class RouteManagementView
         )
         .setHeader("Actions");
 
-        grid.addSelectionListener(event ->
-                event.getFirstSelectedItem()
-                        .ifPresent(this::showDetails)
-        );
+        grid.addItemDoubleClickListener(event -> showDetails(event.getItem()));
     }
 
     // grid action buttons
@@ -348,6 +340,9 @@ public class RouteManagementView
                         statusButton
                 );
 
+        Button schedulesButton = new Button("Schedules", event -> openSchedulesDialog(route.id()));
+        actions.add(schedulesButton);
+
         // archive is a system administrator operation
 
         if (authenticationContext.hasRole(
@@ -377,81 +372,36 @@ public class RouteManagementView
 
     // side panel
 
-    private void configureSidePanel() {
 
-        Button closeButton =
-                new Button(
-                        VaadinIcon.CLOSE.create(),
-                        event ->
-                                hideSidePanel()
-                );
-
-        closeButton.addThemeVariants(
-                ButtonVariant.LUMO_TERTIARY
-        );
-
-        HorizontalLayout header =
-                new HorizontalLayout(
-                        new H3("Route Details"),
-                        closeButton
-                );
-
-        header.setWidthFull();
-
-        header.setJustifyContentMode(
-                FlexComponent.JustifyContentMode.BETWEEN
-        );
-
-        header.setDefaultVerticalComponentAlignment(
-                FlexComponent.Alignment.CENTER
-        );
-
-        sidePanel.add(
-                header,
-                sidePanelContent
-        );
-
-        sidePanel.setVisible(false);
-        sidePanel.setWidth("350px");
-
-        sidePanel.getStyle()
-                .set(
-                        "background-color",
-                        "#ffffff"
-                )
-                .set(
-                        "border-left",
-                        "1px solid #ddd"
-                );
-    }
 
     private void showDetails(
             RouteSummaryView route) {
 
-        sidePanelContent.removeAll();
+        detailsDialog.removeAll();
+        Dialogs.field(detailsDialog, "Record ID", route.id());
 
-        sidePanelContent.add(
+        detailsDialog.add(
                 new Paragraph(
                         "Code: "
                                 + route.routeCode()
                 )
         );
 
-        sidePanelContent.add(
+        detailsDialog.add(
                 new Paragraph(
                         "Name: "
                                 + route.routeName()
                 )
         );
 
-        sidePanelContent.add(
+        detailsDialog.add(
                 new Paragraph(
                         "Stops: "
                                 + route.stopCount()
                 )
         );
 
-        sidePanelContent.add(
+        detailsDialog.add(
                 new Paragraph(
                         "Duration: "
                                 + (
@@ -465,23 +415,25 @@ public class RouteManagementView
                 )
         );
 
-        sidePanelContent.add(
+        detailsDialog.add(
                 new Paragraph(
                         "Status: "
                                 + route.routeStatus()
                 )
         );
 
-        sidePanel.setVisible(true);
+        for (var version : routeService.getVersions(route.id())) {
+            detailsDialog.add(new Paragraph("Version " + version.id() + ": "
+                    + version.effectiveFrom() + " to "
+                    + (version.effectiveTo() == null ? "open" : version.effectiveTo())
+                    + (version.legacySnapshot() ? " (legacy configuration snapshot)" : "")));
+        }
 
-        splitLayout.setSplitterPosition(75);
+        detailsDialog.open();
     }
 
-    private void hideSidePanel() {
-
-        sidePanel.setVisible(false);
-
-        splitLayout.setSplitterPosition(100);
+    private void closeDetails() {
+        detailsDialog.close();
     }
 
     // create route
@@ -489,7 +441,7 @@ public class RouteManagementView
     private void openCreateDialog() {
 
         Dialog dialog =
-                new Dialog();
+                Dialogs.create();
 
         dialog.setHeaderTitle(
                 "Create New Route"
@@ -498,41 +450,46 @@ public class RouteManagementView
         dialog.setWidth("600px");
 
         TextField routeCode =
-                new TextField(
+                FormInputs.text(new TextField(
                         "Route Code"
-                );
+                ), 30);
 
         routeCode.setRequiredIndicatorVisible(
                 true
         );
 
         TextField routeName =
-                new TextField(
+                FormInputs.text(new TextField(
                         "Route Name"
-                );
+                ), 100);
 
         routeName.setRequiredIndicatorVisible(
                 true
         );
 
         TextArea description =
-                new TextArea(
+                FormInputs.notes(new TextArea(
                         "Description"
-                );
+                ));
 
         IntegerField duration =
-                new IntegerField(
+                FormInputs.integer(new IntegerField(
                         "Estimated Duration (min)"
-                );
+                ), 1, 2147483647);
 
         duration.setMin(1);
+
+        DatePicker effectiveFrom = new DatePicker("Version Effective From");
+        effectiveFrom.setValue(LocalDate.now(ZoneId.of(serviceZone)));
+        effectiveFrom.setRequiredIndicatorVisible(true);
 
         FormLayout form =
                 new FormLayout(
                         routeCode,
                         routeName,
                         description,
-                        duration
+                        duration,
+                        effectiveFrom
                 );
 
         VerticalLayout stopsLayout =
@@ -568,6 +525,10 @@ public class RouteManagementView
                 new Button(
                         "Save",
                         event -> {
+                            if (!FormInputs.validate(dialog)) {
+                                return;
+                            }
+
 
                             try {
 
@@ -583,7 +544,8 @@ public class RouteManagementView
                                                 routeName.getValue(),
                                                 description.getValue(),
                                                 duration.getValue(),
-                                                stops
+                                                stops,
+                                                effectiveFrom.getValue()
                                         )
                                 );
 
@@ -649,19 +611,19 @@ public class RouteManagementView
         }
 
         Dialog dialog =
-                new Dialog();
+                Dialogs.create();
 
         dialog.setHeaderTitle(
-                "Edit Route — "
+                "Publish Route Version - "
                         + route.routeCode()
         );
 
         dialog.setWidth("600px");
 
         TextField routeCode =
-                new TextField(
+                FormInputs.text(new TextField(
                         "Route Code"
-                );
+                ), 30);
 
         routeCode.setValue(
                 route.routeCode()
@@ -672,9 +634,9 @@ public class RouteManagementView
         );
 
         TextField routeName =
-                new TextField(
+                FormInputs.text(new TextField(
                         "Route Name"
-                );
+                ), 100);
 
         routeName.setValue(
                 route.routeName()
@@ -685,9 +647,9 @@ public class RouteManagementView
         );
 
         TextArea description =
-                new TextArea(
+                FormInputs.notes(new TextArea(
                         "Description"
-                );
+                ));
 
         description.setValue(
                 route.description() == null
@@ -696,9 +658,9 @@ public class RouteManagementView
         );
 
         IntegerField duration =
-                new IntegerField(
+                FormInputs.integer(new IntegerField(
                         "Estimated Duration (min)"
-                );
+                ), 1, 2147483647);
 
         duration.setMin(1);
 
@@ -709,12 +671,24 @@ public class RouteManagementView
             );
         }
 
+        DatePicker effectiveFrom = new DatePicker("Version Effective From");
+        var versions = routeService.getVersions(routeId);
+        LocalDate earliest = versions.isEmpty() ? LocalDate.now(ZoneId.of(serviceZone))
+                : versions.getFirst().effectiveFrom().plusDays(1);
+        effectiveFrom.setValue(earliest.isAfter(LocalDate.now(ZoneId.of(serviceZone)))
+                ? earliest : LocalDate.now(ZoneId.of(serviceZone)));
+        effectiveFrom.setMin(effectiveFrom.getValue());
+        DatePicker effectiveTo = new DatePicker("Version Effective To (exclusive, optional)");
+        effectiveFrom.setRequiredIndicatorVisible(true);
+
         FormLayout form =
                 new FormLayout(
                         routeCode,
                         routeName,
                         description,
-                        duration
+                        duration,
+                        effectiveFrom,
+                        effectiveTo
                 );
 
         VerticalLayout stopsLayout =
@@ -760,6 +734,10 @@ public class RouteManagementView
                 new Button(
                         "Save",
                         event -> {
+                            if (!FormInputs.validate(dialog)) {
+                                return;
+                            }
+
 
                             try {
 
@@ -776,7 +754,9 @@ public class RouteManagementView
                                                 routeName.getValue(),
                                                 description.getValue(),
                                                 duration.getValue(),
-                                                stops
+                                                stops,
+                                                effectiveFrom.getValue(),
+                                                effectiveTo.getValue()
                                         )
                                 );
 
@@ -785,7 +765,7 @@ public class RouteManagementView
                                 refreshGrid();
 
                                 showSuccess(
-                                        "Route updated successfully."
+                                        "Route version published successfully."
                                 );
 
                             } catch (RuntimeException exception) {
@@ -817,6 +797,69 @@ public class RouteManagementView
         dialog.open();
     }
 
+    private void openSchedulesDialog(Long routeId) {
+        Dialog dialog = Dialogs.create();
+        dialog.setHeaderTitle("Configured Route Schedules");
+        dialog.setWidth("650px");
+        VerticalLayout schedules = new VerticalLayout();
+        schedules.setPadding(false);
+        refreshSchedules(routeId, schedules);
+
+        TextField name = FormInputs.text(new TextField("Schedule Name"), 100);
+        TimePicker departure = new TimePicker("Planned Departure");
+        departure.setStep(java.time.Duration.ofMinutes(1));
+        DatePicker from = new DatePicker("Effective From");
+        from.setValue(LocalDate.now(ZoneId.of(serviceZone)));
+        DatePicker to = new DatePicker("Effective To (exclusive, optional)");
+        name.setRequiredIndicatorVisible(true);
+        departure.setRequiredIndicatorVisible(true);
+        from.setRequiredIndicatorVisible(true);
+
+        Button create = new Button("Create Schedule", event -> {
+                            if (!FormInputs.validate(dialog)) {
+                                return;
+                            }
+
+            try {
+                routeService.createSchedule(new com.transit.arctransit.route.CreateRouteScheduleCommand(
+                        routeId, name.getValue(), departure.getValue(), from.getValue(), to.getValue()));
+                name.clear();
+                departure.clear();
+                refreshSchedules(routeId, schedules);
+                showSuccess("Configured schedule created.");
+            } catch (RuntimeException exception) {
+                showError("Create schedule", exception);
+            }
+        });
+        create.addThemeVariants(ButtonVariant.LUMO_PRIMARY);
+        dialog.add(schedules, new FormLayout(name, departure, from, to));
+        dialog.getFooter().add(new Button("Close", event -> dialog.close()), create);
+        dialog.open();
+    }
+
+    private void refreshSchedules(Long routeId, VerticalLayout content) {
+        content.removeAll();
+        for (var schedule : routeService.getSchedules(routeId)) {
+            Paragraph details = new Paragraph(schedule.name() + " at " + schedule.plannedDeparture()
+                    + ", " + schedule.effectiveFrom() + " to "
+                    + (schedule.effectiveTo() == null ? "open" : schedule.effectiveTo())
+                    + (schedule.active() ? " (active)" : " (inactive)"));
+            Button status = new Button(schedule.active() ? "Deactivate" : "Activate", event -> {
+                try {
+                    routeService.changeScheduleActive(schedule.id(), !schedule.active());
+                    refreshSchedules(routeId, content);
+                } catch (RuntimeException exception) {
+                    showError("Change schedule availability", exception);
+                }
+            });
+            status.addThemeVariants(ButtonVariant.LUMO_SMALL);
+            content.add(new HorizontalLayout(details, status));
+        }
+        if (content.getComponentCount() == 0) {
+            content.add(new Paragraph("No configured schedules."));
+        }
+    }
+
     // route status
 
     private void openStatusDialog(
@@ -824,16 +867,17 @@ public class RouteManagementView
             String currentStatus) {
 
         Dialog dialog =
-                new Dialog();
+                Dialogs.create();
 
         dialog.setHeaderTitle(
                 "Change Route Status"
         );
 
         ComboBox<String> statusCombo =
-                new ComboBox<>(
+                FormInputs.choice(new ComboBox<>(
                         "New Status"
-                );
+                ));
+        statusCombo.setRequiredIndicatorVisible(true);
 
         statusCombo.setItems(
                 ROUTE_STATUSES
@@ -853,6 +897,10 @@ public class RouteManagementView
                 new Button(
                         "Update Status",
                         event -> {
+                            if (!FormInputs.validate(dialog)) {
+                                return;
+                            }
+
 
                             String selectedStatus =
                                     statusCombo.getValue();
@@ -917,8 +965,8 @@ public class RouteManagementView
     private void openArchiveDialog(
             RouteSummaryView route) {
 
-        ConfirmDialog dialog =
-                new ConfirmDialog();
+        ConfirmationDialog dialog =
+                new ConfirmationDialog();
 
         dialog.setHeader(
                 "Archive Route?"
@@ -952,7 +1000,7 @@ public class RouteManagementView
 
                         refreshGrid();
 
-                        hideSidePanel();
+                        closeDetails();
 
                         showSuccess(
                                 "Route archived successfully."
@@ -1142,34 +1190,7 @@ public class RouteManagementView
     private void showError(
             String operation,
             RuntimeException exception) {
-
-        if (exception instanceof BusinessConflictException
-                || exception instanceof CommandValidationException
-                || exception instanceof ResourceNotFoundException) {
-
-            log.warn(
-                    "{} failed: {}",
-                    operation,
-                    exception.getMessage()
-            );
-
-            showErrorNotification(
-                    exception.getMessage()
-            );
-
-            return;
-        }
-
-        log.error(
-                "{} failed unexpectedly.",
-                operation,
-                exception
-        );
-
-        showErrorNotification(
-                "The operation could not be completed. "
-                        + "Please try again."
-        );
+        com.transit.arctransit.common.ui.ApplicationErrors.show(exception);
     }
 
     // error notification
@@ -1194,13 +1215,13 @@ public class RouteManagementView
     private static class StopFormEntry {
 
         private final TextField stopName =
-                new TextField("Stop Name");
+                FormInputs.text(new TextField("Stop Name"), 100);
 
         private final IntegerField sequence =
-                new IntegerField("Sequence");
+                FormInputs.integer(new IntegerField("Sequence"), 1, 2147483647);
 
         private final IntegerField arrivalMinutes =
-                new IntegerField("Arrival (min)");
+                FormInputs.integer(new IntegerField("Arrival (min)"), 0, 2147483647);
 
         private final Button removeButton =
                 new Button(

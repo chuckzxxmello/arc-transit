@@ -16,6 +16,7 @@ import java.time.Instant;
         name = "audit_logs",
         schema = "arc"
 )
+@org.hibernate.annotations.Immutable
 public class AuditLog {
 
     @Id
@@ -63,6 +64,9 @@ public class AuditLog {
     )
     private String details;
 
+    @Column(name = "outcome", nullable = false, length = 20)
+    private String outcome;
+
     // JPA
 
     protected AuditLog() {
@@ -77,12 +81,18 @@ public class AuditLog {
             String performedBy,
             String details) {
 
+        this(actionName, entityName, entityId, performedBy, details, "SUCCESS");
+    }
+
+    public AuditLog(String actionName, String entityName, Long entityId,
+                    String performedBy, String details, String outcome) {
         this.actionName = actionName;
         this.entityName = entityName;
         this.entityId = entityId;
         this.performedBy = performedBy;
         this.timestamp = Instant.now();
         this.details = details;
+        this.outcome = outcome;
     }
 
     // getters
@@ -109,6 +119,10 @@ public class AuditLog {
 
     public Instant getTimestamp() {
         return timestamp;
+    }
+
+    public String getOutcome() {
+        return outcome;
     }
 
     public String getDetails() {

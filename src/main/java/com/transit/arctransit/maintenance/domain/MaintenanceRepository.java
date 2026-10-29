@@ -10,6 +10,17 @@ import java.util.List;
 public interface MaintenanceRepository
         extends JpaRepository<MaintenanceRecord, Long> {
 
+    Page<MaintenanceRecord> findByArchivedAtIsNull(Pageable pageable);
+
+    @org.springframework.data.jpa.repository.Query("""
+            SELECT record FROM MaintenanceRecord record WHERE record.archivedAt IS NOT NULL
+              AND (:filter = '' OR lower(record.description) LIKE lower(concat('%', :filter, '%'))
+                OR lower(coalesce(record.technicianNotes, '')) LIKE lower(concat('%', :filter, '%'))
+                OR cast(record.id AS string) = :filter OR cast(record.fleetUnitId AS string) = :filter)
+            """)
+    Page<MaintenanceRecord> searchArchived(@org.springframework.data.repository.query.Param("filter") String filter,
+            Pageable pageable);
+
     // newest maintenance records first
     Page<MaintenanceRecord>
     findAllByOrderByCreatedAtDesc(

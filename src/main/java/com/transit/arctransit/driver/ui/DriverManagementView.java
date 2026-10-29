@@ -1,8 +1,16 @@
 package com.transit.arctransit.driver.ui;
 
+import com.transit.arctransit.common.ui.RefreshButton;
+import com.transit.arctransit.common.ui.Dialogs;
 // driver module
 
+import com.transit.arctransit.common.ui.FormInputs;
+
 import com.transit.arctransit.driver.CreateDriverCommand;
+import com.transit.arctransit.driver.ChangeDriverAvailabilityCommand;
+import com.transit.arctransit.driver.DriverAvailabilityHistoryView;
+import com.vaadin.flow.component.textfield.TextArea;
+import java.time.Instant;
 import com.transit.arctransit.driver.DriverManagementService;
 import com.transit.arctransit.driver.DriverQuery;
 import com.transit.arctransit.driver.DriverSummaryView;
@@ -19,11 +27,12 @@ import com.vaadin.flow.component.html.Div;
 import com.vaadin.flow.component.button.Button;
 import com.vaadin.flow.component.button.ButtonVariant;
 import com.vaadin.flow.component.combobox.ComboBox;
-import com.vaadin.flow.component.confirmdialog.ConfirmDialog;
+import com.transit.arctransit.common.ui.ConfirmationDialog;
 import com.vaadin.flow.component.datepicker.DatePicker;
 import com.vaadin.flow.component.dialog.Dialog;
 import com.vaadin.flow.component.formlayout.FormLayout;
 import com.vaadin.flow.component.grid.Grid;
+import com.transit.arctransit.common.ui.DataGrids;
 import com.vaadin.flow.component.html.H2;
 import com.vaadin.flow.component.html.H3;
 import com.vaadin.flow.component.html.Paragraph;
@@ -34,7 +43,6 @@ import com.vaadin.flow.component.notification.NotificationVariant;
 import com.vaadin.flow.component.orderedlayout.FlexComponent;
 import com.vaadin.flow.component.orderedlayout.HorizontalLayout;
 import com.vaadin.flow.component.orderedlayout.VerticalLayout;
-import com.vaadin.flow.component.splitlayout.SplitLayout;
 import com.vaadin.flow.component.textfield.PasswordField;
 import com.vaadin.flow.component.textfield.TextField;
 import com.vaadin.flow.data.value.ValueChangeMode;
@@ -50,7 +58,6 @@ import jakarta.annotation.security.RolesAllowed;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import org.springframework.data.domain.PageRequest;
 
 // java
 
@@ -101,16 +108,11 @@ public class DriverManagementView extends VerticalLayout {
     private final DriverManagementService driverService;
 
     private final Grid<DriverSummaryView> grid =
-            new Grid<>();
+            DataGrids.create();
 
-    private final SplitLayout splitLayout =
-            new SplitLayout();
 
-    private final VerticalLayout sidePanel =
-            new VerticalLayout();
+    private final Dialog detailsDialog = Dialogs.details("Driver Details");
 
-    private final Div sidePanelContent =
-            new Div();
     
     private String currentSearchFilter = "";
 
@@ -122,7 +124,6 @@ public class DriverManagementView extends VerticalLayout {
         this.driverService = driverService;
 
         configureView();
-        configureSidePanel();
         configureGrid();
 
         HorizontalLayout header =
@@ -138,20 +139,8 @@ public class DriverManagementView extends VerticalLayout {
         gridContainer.setPadding(false);
         gridContainer.setSpacing(false);
 
-        splitLayout.addToPrimary(
-                gridContainer
-        );
-
-        splitLayout.addToSecondary(
-                sidePanel
-        );
-
-        splitLayout.setSplitterPosition(100);
-        splitLayout.setSizeFull();
-
-        add(splitLayout);
-
-        expand(splitLayout);
+        add(gridContainer);
+        expand(gridContainer);
     }
 
     // view
@@ -187,7 +176,7 @@ public class DriverManagementView extends VerticalLayout {
         title.getStyle().set("margin", "0");
 
         TextField searchField =
-                new TextField();
+                FormInputs.text(new TextField(), 200);
 
         searchField.setPlaceholder(
                 "Search name or license..."
@@ -226,7 +215,8 @@ public class DriverManagementView extends VerticalLayout {
         HorizontalLayout actions =
                 new HorizontalLayout(
                         searchField,
-                        addButton
+                        addButton,
+                        new RefreshButton(this::refreshGrid)
                 );
 
         header.add(
@@ -247,41 +237,47 @@ public class DriverManagementView extends VerticalLayout {
                 DriverSummaryView::employeeNumber
         )
         .setHeader("Employee #")
+        .setSortProperty("employeeNumber")
         .setSortable(true);
 
         grid.addColumn(
                 DriverSummaryView::fullName
         )
         .setHeader("Name")
+        .setSortProperty("firstName", "lastName")
         .setSortable(true);
 
         grid.addColumn(
                 DriverSummaryView::licenseNumber
         )
         .setHeader("License #")
+        .setSortProperty("licenseNumber")
         .setSortable(true);
 
         grid.addComponentColumn(
                 this::createLicenseExpiryComponent
         )
         .setHeader("License Expiry")
+        .setSortProperty("licenseExpiryDate")
         .setSortable(true);
 
         grid.addColumn(
                 DriverSummaryView::employmentStatus
         )
-        .setHeader("Status")
+        .setHeader("Employment Status")
+        .setSortProperty("employmentStatus")
         .setSortable(true);
+
+        grid.addColumn(DriverSummaryView::availability).setHeader("Reported Availability");
+        grid.setItemsPageable(pageable -> driverService.searchDrivers(
+                new DriverQuery(currentSearchFilter, null), pageable).getContent());
 
         grid.addComponentColumn(
                 this::createActionButtons
         )
-        .setHeader("Actions");
+        .setHeader("Actions").setWidth("410px").setFlexGrow(0);
 
-        grid.addSelectionListener(event ->
-                event.getFirstSelectedItem()
-                        .ifPresent(this::showDetails)
-        );
+        grid.addItemDoubleClickListener(event -> showDetails(event.getItem()));
     }
 
     // license expiry display
@@ -349,11 +345,18 @@ public class DriverManagementView extends VerticalLayout {
                 ButtonVariant.LUMO_ERROR
         );
 
-        return new HorizontalLayout(
+        HorizontalLayout actions = new HorizontalLayout(
                 editButton,
                 statusButton,
+                new Button("Availability", event -> openAvailabilityDialog(driver.id(), driver.availability())),
                 archiveButton
         );
+        actions.setSpacing(false);
+        actions.getStyle().set("gap", "4px").set("flex-wrap", "wrap");
+        actions.getChildren().filter(Button.class::isInstance).map(Button.class::cast)
+                .forEach(button -> button.addThemeVariants(ButtonVariant.LUMO_SMALL));
+        archiveButton.setTooltipText("Archive Driver");
+        return actions;
     }
 
     // details
@@ -361,96 +364,47 @@ public class DriverManagementView extends VerticalLayout {
     private void showDetails(
             DriverSummaryView driver) {
 
-        sidePanelContent.removeAll();
+        detailsDialog.removeAll();
+        Dialogs.field(detailsDialog, "Record ID", driver.id());
 
-        sidePanelContent.add(
+        detailsDialog.add(
                 new Paragraph(
                         "Employee No: "
                                 + driver.employeeNumber()
                 )
         );
 
-        sidePanelContent.add(
+        detailsDialog.add(
                 new Paragraph(
                         "Name: "
                                 + driver.fullName()
                 )
         );
 
-        sidePanelContent.add(
+        detailsDialog.add(
                 new Paragraph(
                         "License: "
                                 + driver.licenseNumber()
                 )
         );
 
-        sidePanelContent.add(
+        detailsDialog.add(
                 new Paragraph(
                         "Status: "
                                 + driver.employmentStatus()
                 )
         );
 
-        sidePanel.setVisible(true);
-
-        splitLayout.setSplitterPosition(75);
+        Dialogs.field(detailsDialog, "Reported availability", driver.availability());
+        detailsDialog.open();
     }
 
     // side panel
 
-    private void configureSidePanel() {
 
-        Button closeButton =
-                new Button(
-                        VaadinIcon.CLOSE.create(),
-                        event ->
-                                hideSidePanel()
-                );
 
-        closeButton.addThemeVariants(
-                ButtonVariant.LUMO_TERTIARY
-        );
-
-        HorizontalLayout header =
-                new HorizontalLayout(
-                        new H3("Driver Details"),
-                        closeButton
-                );
-
-        header.setWidthFull();
-
-        header.setJustifyContentMode(
-                FlexComponent.JustifyContentMode.BETWEEN
-        );
-
-        header.setDefaultVerticalComponentAlignment(
-                FlexComponent.Alignment.CENTER
-        );
-
-        sidePanel.add(
-                header,
-                sidePanelContent
-        );
-
-        sidePanel.setVisible(false);
-        sidePanel.setWidth("350px");
-
-        sidePanel.getStyle()
-                .set(
-                        "background-color",
-                        "#ffffff"
-                )
-                .set(
-                        "border-left",
-                        "1px solid #ddd"
-                );
-    }
-
-    private void hideSidePanel() {
-
-        sidePanel.setVisible(false);
-
-        splitLayout.setSplitterPosition(100);
+    private void closeDetails() {
+        detailsDialog.close();
     }
 
     // create driver
@@ -458,28 +412,33 @@ public class DriverManagementView extends VerticalLayout {
     private void openCreateDialog() {
 
         Dialog dialog =
-                new Dialog();
+                Dialogs.create();
 
         dialog.setHeaderTitle(
                 "Register New Driver"
         );
 
         TextField employeeNumber =
-                new TextField(
+                FormInputs.text(new TextField(
                         "Employee Number"
-                );
+                ), 30);
+        employeeNumber.setRequiredIndicatorVisible(true);
 
         TextField firstName =
-                new TextField("First Name");
+                FormInputs.text(new TextField("First Name"), 50);
+        firstName.setRequiredIndicatorVisible(true);
 
         TextField lastName =
-                new TextField("Last Name");
+                FormInputs.text(new TextField("Last Name"), 50);
+        lastName.setRequiredIndicatorVisible(true);
 
         TextField licenseNumber =
-                new TextField("License Number");
+                FormInputs.text(new TextField("License Number"), 50);
+        licenseNumber.setRequiredIndicatorVisible(true);
 
         ComboBox<String> licenseType =
-                new ComboBox<>("License Type");
+                FormInputs.choice(new ComboBox<>("License Type"));
+        licenseType.setRequiredIndicatorVisible(true);
 
         licenseType.setItems(
                 LICENSE_TYPES
@@ -493,11 +452,12 @@ public class DriverManagementView extends VerticalLayout {
                 new DatePicker(
                         "License Expiry Date"
                 );
+        expiryDate.setRequiredIndicatorVisible(true);
 
         TextField contactNumber =
-                new TextField(
+                FormInputs.mobileNumber(new TextField(
                         "Contact Number"
-                );
+                ));
 
         FormLayout form =
                 new FormLayout(
@@ -516,6 +476,10 @@ public class DriverManagementView extends VerticalLayout {
                 new Button(
                         "Save",
                         event -> {
+                            if (!FormInputs.validate(dialog)) {
+                                return;
+                            }
+
 
                             try {
 
@@ -592,7 +556,7 @@ public class DriverManagementView extends VerticalLayout {
         }
 
         Dialog dialog =
-                new Dialog();
+                Dialogs.create();
 
         dialog.setHeaderTitle(
                 "Edit Driver — "
@@ -602,39 +566,44 @@ public class DriverManagementView extends VerticalLayout {
         );
 
         TextField employeeNumber =
-                new TextField(
+                FormInputs.text(new TextField(
                         "Employee Number"
-                );
+                ), 30);
+        employeeNumber.setRequiredIndicatorVisible(true);
 
         employeeNumber.setValue(
                 driver.employeeNumber()
         );
 
         TextField firstName =
-                new TextField("First Name");
+                FormInputs.text(new TextField("First Name"), 50);
+        firstName.setRequiredIndicatorVisible(true);
 
         firstName.setValue(
                 driver.firstName()
         );
 
         TextField lastName =
-                new TextField("Last Name");
+                FormInputs.text(new TextField("Last Name"), 50);
+        lastName.setRequiredIndicatorVisible(true);
 
         lastName.setValue(
                 driver.lastName()
         );
 
         TextField licenseNumber =
-                new TextField(
+                FormInputs.text(new TextField(
                         "License Number"
-                );
+                ), 50);
+        licenseNumber.setRequiredIndicatorVisible(true);
 
         licenseNumber.setValue(
                 driver.licenseNumber()
         );
 
         ComboBox<String> licenseType =
-                new ComboBox<>("License Type");
+                FormInputs.choice(new ComboBox<>("License Type"));
+        licenseType.setRequiredIndicatorVisible(true);
 
         licenseType.setItems(
                 LICENSE_TYPES
@@ -648,6 +617,7 @@ public class DriverManagementView extends VerticalLayout {
                 new DatePicker(
                         "License Expiry Date"
                 );
+        expiryDate.setRequiredIndicatorVisible(true);
 
         expiryDate.setValue(
                 LocalDate.parse(
@@ -656,9 +626,9 @@ public class DriverManagementView extends VerticalLayout {
         );
 
         TextField contactNumber =
-                new TextField(
+                FormInputs.mobileNumber(new TextField(
                         "Contact Number"
-                );
+                ));
 
         contactNumber.setValue(
                 driver.contactNumber() == null
@@ -683,6 +653,10 @@ public class DriverManagementView extends VerticalLayout {
                 new Button(
                         "Save",
                         event -> {
+                            if (!FormInputs.validate(dialog)) {
+                                return;
+                            }
+
 
                             try {
 
@@ -735,6 +709,56 @@ public class DriverManagementView extends VerticalLayout {
         dialog.open();
     }
 
+    private void openAvailabilityDialog(Long driverId, String currentAvailability) {
+        Dialog dialog = Dialogs.create();
+        dialog.setHeaderTitle("Driver Availability");
+        ComboBox<String> availability = FormInputs.choice(new ComboBox<>("Reported Availability"));
+        availability.setRequiredIndicatorVisible(true);
+        availability.setItems("AVAILABLE", "UNAVAILABLE", "UNKNOWN");
+        availability.setValue(currentAvailability);
+        TextArea reason = FormInputs.notes(new TextArea("Reason"));
+        reason.setRequiredIndicatorVisible(true);
+        Button record = new Button("Record Availability", event -> {
+                            if (!FormInputs.validate(dialog)) {
+                                return;
+                            }
+
+            try {
+                driverService.changeAvailability(new ChangeDriverAvailabilityCommand(
+                        driverId, availability.getValue(), Instant.now(), reason.getValue()));
+                dialog.close();
+                refreshGrid();
+                showSuccess("Availability report recorded as unverified.");
+            } catch (RuntimeException exception) {
+                showError("Record availability", exception);
+            }
+        });
+        record.addThemeVariants(ButtonVariant.LUMO_PRIMARY);
+        dialog.add(new VerticalLayout(availability, reason));
+        dialog.getFooter().add(new Button("History", event -> openAvailabilityHistory(driverId)),
+                new Button("Close", event -> dialog.close()), record);
+        dialog.open();
+    }
+
+    private void openAvailabilityHistory(Long driverId) {
+        Dialog dialog = Dialogs.create();
+        dialog.setHeaderTitle("Driver Availability History");
+        dialog.setWidth("1000px");
+        Grid<DriverAvailabilityHistoryView> history = DataGrids.create();
+        history.addColumn(DriverAvailabilityHistoryView::previousAvailability).setHeader("Previous");
+        history.addColumn(DriverAvailabilityHistoryView::availability).setHeader("Reported Availability");
+        history.addColumn(DriverAvailabilityHistoryView::effectiveAt).setHeader("Effective Time");
+        history.addColumn(DriverAvailabilityHistoryView::recordedAt).setHeader("Recorded Time");
+        history.addColumn(DriverAvailabilityHistoryView::recordedBy).setHeader("Recorded By");
+        history.addColumn(DriverAvailabilityHistoryView::sourceType).setHeader("Source");
+        history.addColumn(DriverAvailabilityHistoryView::verificationStatus).setHeader("Verification");
+        history.addColumn(DriverAvailabilityHistoryView::reason).setHeader("Reason");
+        history.setItemsPageable(pageable -> driverService.availabilityHistory(driverId, pageable).getContent());
+        dialog.add(history);
+        dialog.getFooter().add(new Button("Close", event -> dialog.close()));
+        dialog.open();
+    }
+
     // employment status
 
     private void openStatusDialog(
@@ -742,14 +766,15 @@ public class DriverManagementView extends VerticalLayout {
             String currentStatus) {
 
         Dialog dialog =
-                new Dialog();
+                Dialogs.create();
 
         dialog.setHeaderTitle(
                 "Change Employment Status"
         );
 
         ComboBox<String> statusCombo =
-                new ComboBox<>("New Status");
+                FormInputs.choice(new ComboBox<>("New Status"));
+        statusCombo.setRequiredIndicatorVisible(true);
 
         statusCombo.setItems(
                 EMPLOYMENT_STATUSES
@@ -769,6 +794,10 @@ public class DriverManagementView extends VerticalLayout {
                 new Button(
                         "Update Status",
                         event -> {
+                            if (!FormInputs.validate(dialog)) {
+                                return;
+                            }
+
 
                             String status =
                                     statusCombo.getValue();
@@ -832,8 +861,8 @@ public class DriverManagementView extends VerticalLayout {
     private void openArchiveDialog(
             DriverSummaryView driver) {
 
-        ConfirmDialog dialog =
-                new ConfirmDialog();
+        ConfirmationDialog dialog =
+                new ConfirmationDialog();
 
         dialog.setHeader(
                 "Archive Driver?"
@@ -867,7 +896,7 @@ public class DriverManagementView extends VerticalLayout {
 
                         refreshGrid();
 
-                        hideSidePanel();
+                        closeDetails();
 
                         showSuccess(
                                 "Driver archived successfully."
@@ -889,46 +918,7 @@ public class DriverManagementView extends VerticalLayout {
     // refresh grid
 
     private void refreshGrid() {
-
-        /*
-         * Keep the existing repository/service behavior for now.
-         *
-         * The DriverQuery search implementation will be moved into
-         * the repository in a later coordinated cleanup.
-         */
-        var items =
-                driverService
-                        .searchDrivers(
-                                new DriverQuery(
-                                        null,
-                                        null
-                                ),
-                                PageRequest.of(0, 100)
-                        )
-                        .getContent();
-
-        if (!currentSearchFilter.isBlank()) {
-
-            String query =
-                    currentSearchFilter
-                            .toLowerCase();
-
-            items = items.stream()
-                    .filter(driver ->
-                            driver.fullName()
-                                    .toLowerCase()
-                                    .contains(query)
-                            || driver.licenseNumber()
-                                    .toLowerCase()
-                                    .contains(query)
-                            || driver.employeeNumber()
-                                    .toLowerCase()
-                                    .contains(query)
-                    )
-                    .toList();
-        }
-
-        grid.setItems(items);
+        grid.getDataProvider().refreshAll();
     }
 
     // search normalization
@@ -961,21 +951,7 @@ public class DriverManagementView extends VerticalLayout {
     private void showError(
             String operation,
             RuntimeException exception) {
-
-        log.error(
-                "{} failed.",
-                operation,
-                exception
-        );
-
-        Notification.show(
-                        "The operation could not be completed.",
-                        5000,
-                        Notification.Position.TOP_CENTER
-                )
-                .addThemeVariants(
-                        NotificationVariant.LUMO_ERROR
-                );
+        com.transit.arctransit.common.ui.ApplicationErrors.show(exception);
     }
 
     private void showErrorNotification(

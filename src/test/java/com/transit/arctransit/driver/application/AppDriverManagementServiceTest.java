@@ -11,6 +11,7 @@ import com.transit.arctransit.driver.UpdateDriverCommand;
 
 import com.transit.arctransit.driver.domain.Driver;
 import com.transit.arctransit.driver.domain.DriverRepository;
+import com.transit.arctransit.driver.domain.DriverAvailabilityHistoryRepository;
 import com.transit.arctransit.driver.domain.LicenseType;
 
 // audit
@@ -77,6 +78,9 @@ class AppDriverManagementServiceTest {
 
     @Mock
     private AuditRecordingService auditService;
+
+    @Mock
+    private DriverAvailabilityHistoryRepository historyRepository;
 
     @InjectMocks
     private AppDriverManagementService service;
@@ -233,7 +237,7 @@ class AppDriverManagementServiceTest {
     @Test
     void changeEmploymentStatus_success() {
 
-        when(driverRepository.findById(1L))
+        when(driverRepository.findLockedById(1L))
                 .thenReturn(Optional.of(existingDriver));
 
         DriverView result =
@@ -251,7 +255,7 @@ class AppDriverManagementServiceTest {
     @Test
     void changeEmploymentStatus_notFound_throwsNotFound() {
 
-        when(driverRepository.findById(99L))
+        when(driverRepository.findLockedById(99L))
                 .thenReturn(Optional.empty());
 
         assertThrows(
@@ -268,7 +272,7 @@ class AppDriverManagementServiceTest {
     @Test
     void archiveDriver_success() {
 
-        when(driverRepository.findById(1L))
+        when(driverRepository.findLockedById(1L))
                 .thenReturn(Optional.of(existingDriver));
 
         service.archiveDriver(1L);
@@ -288,8 +292,8 @@ class AppDriverManagementServiceTest {
                         List.of(existingDriver)
                 );
 
-        when(driverRepository.findByArchivedAtIsNull(
-                any()
+        when(driverRepository.searchActive(
+                null, null, PageRequest.of(0, 10)
         )).thenReturn(page);
 
         Page<DriverSummaryView> result =
@@ -309,6 +313,51 @@ class AppDriverManagementServiceTest {
                         .get(0)
                         .employeeNumber()
         );
+    }
+
+
+    @Test
+    void driverAvailabilityIsIndependentOfEmploymentAndQualification() {
+        when(driverRepository.findLockedById(1L)).thenReturn(Optional.of(existingDriver));
+
+        DriverView result = service.changeAvailability(
+                new com.transit.arctransit.driver.ChangeDriverAvailabilityCommand(
+                        1L, "UNAVAILABLE", java.time.Instant.now(), "Leave reported"));
+
+        assertEquals("ACTIVE", result.employmentStatus());
+        assertEquals("PROFESSIONAL", result.licenseType());
+        assertEquals("UNAVAILABLE", result.availability());
+        var event = org.mockito.ArgumentCaptor.forClass(
+                com.transit.arctransit.driver.domain.DriverAvailabilityHistory.class);
+        verify(historyRepository).save(event.capture());
+        assertEquals("UNKNOWN", event.getValue().getPreviousAvailability());
+        assertEquals("UNAVAILABLE", event.getValue().getAvailability());
+        assertEquals("UNVERIFIED", event.getValue().getVerificationStatus());
+        assertEquals("Leave reported", event.getValue().getReason());
+    }
+
+    @Test
+    void driverAvailabilityRejectsFutureEffectiveTimeWithoutChangingState() {
+        when(driverRepository.findLockedById(1L)).thenReturn(Optional.of(existingDriver));
+
+        assertThrows(CommandValidationException.class, () -> service.changeAvailability(
+                new com.transit.arctransit.driver.ChangeDriverAvailabilityCommand(
+                        1L, "AVAILABLE", java.time.Instant.now().plusSeconds(3600), "Future shift")));
+
+        assertEquals("UNKNOWN", existingDriver.getAvailability().name());
+        org.mockito.Mockito.verifyNoInteractions(historyRepository, auditService);
+    }
+
+    @Test
+    void driverSearchPassesNormalizedQueryAndStatusToRepository() {
+        var pageable = PageRequest.of(2, 20);
+        when(driverRepository.searchActive("Juan", com.transit.arctransit.driver.domain.EmploymentStatus.ACTIVE,
+                pageable)).thenReturn(Page.empty(pageable));
+
+        service.searchDrivers(new com.transit.arctransit.driver.DriverQuery(" Juan ", "active"), pageable);
+
+        verify(driverRepository).searchActive("Juan",
+                com.transit.arctransit.driver.domain.EmploymentStatus.ACTIVE, pageable);
     }
 
     // test utility

@@ -12,6 +12,7 @@
                 "fleet",
                 "driver",
                 "route",
+                "maintenance",
                 "common",
                 "audit"
         }

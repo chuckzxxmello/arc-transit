@@ -1,6 +1,11 @@
 package com.transit.arctransit.analytics.ui;
 
+import com.transit.arctransit.common.ui.RefreshButton;
+import com.vaadin.flow.component.dialog.Dialog;
+import com.transit.arctransit.common.ui.Dialogs;
 // fleet
+import com.transit.arctransit.common.ui.FormInputs;
+
 import com.transit.arctransit.fleet.FleetManagementService;
 import com.transit.arctransit.fleet.FleetUnitSummaryView;
 
@@ -15,6 +20,17 @@ import com.transit.arctransit.route.RouteSummaryView;
 // dispatch
 import com.transit.arctransit.dispatch.DispatchAssignmentView;
 import com.transit.arctransit.dispatch.DispatchService;
+import com.transit.arctransit.auth.UserAdministrationService;
+import com.transit.arctransit.auth.UserQuery;
+import com.transit.arctransit.auth.UserSummaryView;
+import com.transit.arctransit.incident.IncidentManagementService;
+import com.transit.arctransit.incident.IncidentView;
+import com.transit.arctransit.maintenance.MaintenanceService;
+import com.transit.arctransit.maintenance.MaintenanceRecordView;
+import com.transit.arctransit.reporting.OperationalReportService;
+import com.transit.arctransit.reporting.OperationalReportView;
+import com.transit.arctransit.reporting.ReportVerificationView;
+import com.transit.arctransit.common.ui.ApplicationErrors;
 
 // common UI
 import com.transit.arctransit.common.ui.MainLayout;
@@ -22,8 +38,9 @@ import com.transit.arctransit.common.ui.MainLayout;
 // vaadin
 import com.vaadin.flow.component.button.Button;
 import com.vaadin.flow.component.button.ButtonVariant;
-import com.vaadin.flow.component.confirmdialog.ConfirmDialog;
+import com.transit.arctransit.common.ui.ConfirmationDialog;
 import com.vaadin.flow.component.grid.Grid;
+import com.transit.arctransit.common.ui.DataGrids;
 import com.vaadin.flow.component.html.Div;
 import com.vaadin.flow.component.html.H2;
 import com.vaadin.flow.component.html.H3;
@@ -34,7 +51,6 @@ import com.vaadin.flow.component.notification.NotificationVariant;
 import com.vaadin.flow.component.orderedlayout.FlexComponent;
 import com.vaadin.flow.component.orderedlayout.HorizontalLayout;
 import com.vaadin.flow.component.orderedlayout.VerticalLayout;
-import com.vaadin.flow.component.splitlayout.SplitLayout;
 import com.vaadin.flow.component.tabs.Tab;
 import com.vaadin.flow.component.tabs.TabSheet;
 import com.vaadin.flow.component.textfield.TextField;
@@ -47,6 +63,7 @@ import jakarta.annotation.security.RolesAllowed;
 
 // spring
 import org.springframework.data.domain.PageRequest;
+import org.springframework.data.domain.Sort;
 
 // java
 import java.util.List;
@@ -65,17 +82,23 @@ public class ArchiveView extends VerticalLayout {
     private final DriverManagementService driverService;
     private final RouteManagementService routeService;
     private final DispatchService dispatchService;
+    private final UserAdministrationService userService;
+    private final IncidentManagementService incidentService;
+    private final MaintenanceService maintenanceService;
+    private final OperationalReportService reportService;
 
     // grids
-    private final Grid<FleetUnitSummaryView> fleetGrid = new Grid<>();
-    private final Grid<DriverSummaryView> driverGrid = new Grid<>();
-    private final Grid<RouteSummaryView> routeGrid = new Grid<>();
-    private final Grid<DispatchAssignmentView> dispatchGrid = new Grid<>();
+    private final Grid<FleetUnitSummaryView> fleetGrid = DataGrids.create();
+    private final Grid<DriverSummaryView> driverGrid = DataGrids.create();
+    private final Grid<RouteSummaryView> routeGrid = DataGrids.create();
+    private final Grid<DispatchAssignmentView> dispatchGrid = DataGrids.create();
+    private final Grid<UserSummaryView> userGrid = DataGrids.create();
+    private final Grid<IncidentView> incidentGrid = DataGrids.create();
+    private final Grid<MaintenanceRecordView> maintenanceGrid = DataGrids.create();
+    private final Grid<OperationalReportView> reportGrid = DataGrids.create();
 
     // side panel
-    private final SplitLayout splitLayout = new SplitLayout();
-    private final VerticalLayout sidePanel = new VerticalLayout();
-    private final Div sidePanelContent = new Div();
+    private final Dialog detailsDialog = Dialogs.details("Archived Record Details");
 
     // current search text
     private String currentSearchFilter = "";
@@ -85,20 +108,23 @@ public class ArchiveView extends VerticalLayout {
             FleetManagementService fleetService,
             DriverManagementService driverService,
             RouteManagementService routeService,
-            DispatchService dispatchService) {
+            DispatchService dispatchService,
+            UserAdministrationService userService,
+            IncidentManagementService incidentService,
+            MaintenanceService maintenanceService,
+            OperationalReportService reportService) {
 
         this.fleetService = fleetService;
         this.driverService = driverService;
         this.routeService = routeService;
         this.dispatchService = dispatchService;
+        this.userService = userService;
+        this.incidentService = incidentService;
+        this.maintenanceService = maintenanceService;
+        this.reportService = reportService;
 
         configureView();
         configureArchiveTabs();
-        configureSidePanel();
-
-        add(splitLayout);
-
-        expand(splitLayout);
 
         refreshAll();
     }
@@ -123,6 +149,9 @@ public class ArchiveView extends VerticalLayout {
         configureDriverGrid();
         configureRouteGrid();
         configureDispatchGrid();
+        configureUserGrid();
+        configureCompletedWorkGrids();
+        configureReportGrid();
 
         tabSheet.add(
                 new Tab("Archived Buses"),
@@ -143,6 +172,10 @@ public class ArchiveView extends VerticalLayout {
                 new Tab("Archived Dispatches"),
                 dispatchGrid
         );
+        tabSheet.add(new Tab("Archived Users"), userGrid);
+        tabSheet.add(new Tab("Archived Maintenance"), maintenanceGrid);
+        tabSheet.add(new Tab("Archived Incidents"), incidentGrid);
+        tabSheet.add(new Tab("Archived Operational Reports"), reportGrid);
 
         HorizontalLayout header =
                 createHeader();
@@ -157,16 +190,8 @@ public class ArchiveView extends VerticalLayout {
         primaryContent.setPadding(false);
         primaryContent.setSpacing(false);
 
-        splitLayout.addToPrimary(
-                primaryContent
-        );
-
-        splitLayout.addToSecondary(
-                sidePanel
-        );
-
-        splitLayout.setSplitterPosition(100);
-        splitLayout.setSizeFull();
+        add(primaryContent);
+        expand(primaryContent);
     }
 
     // archive header
@@ -179,7 +204,7 @@ public class ArchiveView extends VerticalLayout {
                 .set("margin", "0");
 
         TextField searchField =
-                new TextField();
+                FormInputs.text(new TextField(), 200);
 
         searchField.setPlaceholder(
                 "Search current archive page..."
@@ -208,7 +233,7 @@ public class ArchiveView extends VerticalLayout {
         HorizontalLayout header =
                 new HorizontalLayout(
                         title,
-                        searchField
+                        new HorizontalLayout(searchField, new RefreshButton(this::refreshAll))
                 );
 
         header.setWidthFull();
@@ -224,6 +249,185 @@ public class ArchiveView extends VerticalLayout {
         );
 
         return header;
+    }
+
+    private void configureCompletedWorkGrids() {
+        maintenanceGrid.setSizeFull();
+        maintenanceGrid.addColumn(MaintenanceRecordView::id).setHeader("Maintenance Number");
+        maintenanceGrid.addColumn(record -> fleetService.getUnit(record.fleetUnitId()).unitNumber()).setHeader("Bus");
+        maintenanceGrid.addColumn(MaintenanceRecordView::maintenanceType).setHeader("Type");
+        maintenanceGrid.addColumn(MaintenanceRecordView::maintenanceStatus).setHeader("Status");
+        maintenanceGrid.addColumn(MaintenanceRecordView::description).setHeader("Description").setWidth("300px");
+        maintenanceGrid.addColumn(MaintenanceRecordView::completedAt).setHeader("Completed At");
+        maintenanceGrid.addColumn(MaintenanceRecordView::technicianNotes).setHeader("Technician Notes").setWidth("300px");
+        maintenanceGrid.addComponentColumn(record -> new Button("Details & History",
+                event -> showMaintenanceDetails(record))).setHeader("Actions");
+        maintenanceGrid.addItemDoubleClickListener(event -> showMaintenanceDetails(event.getItem()));
+        maintenanceGrid.setItemsPageable(pageable -> maintenanceService.searchArchivedRecords(currentSearchFilter,
+                PageRequest.of(pageable.getPageNumber(), pageable.getPageSize(), Sort.by(Sort.Direction.DESC, "completedAt", "id")))
+                .getContent());
+
+        incidentGrid.setSizeFull();
+        incidentGrid.addColumn(IncidentView::id).setHeader("Incident Number");
+        incidentGrid.addColumn(IncidentView::title).setHeader("Title").setWidth("260px");
+        incidentGrid.addColumn(IncidentView::severity).setHeader("Severity");
+        incidentGrid.addColumn(IncidentView::status).setHeader("Status");
+        incidentGrid.addColumn(IncidentView::reportedAt).setHeader("Reported At");
+        incidentGrid.addColumn(IncidentView::resolvedAt).setHeader("Resolved At");
+        incidentGrid.addColumn(IncidentView::resolutionNotes).setHeader("Resolution Notes").setWidth("300px");
+        incidentGrid.addComponentColumn(incident -> new Button("Details & History",
+                event -> showIncidentDetails(incident))).setHeader("Actions");
+        incidentGrid.addItemDoubleClickListener(event -> showIncidentDetails(event.getItem()));
+        incidentGrid.setItemsPageable(pageable -> incidentService.searchArchivedIncidents(currentSearchFilter,
+                PageRequest.of(pageable.getPageNumber(), pageable.getPageSize(), Sort.by(Sort.Direction.DESC, "reportedAt", "id")))
+                .getContent());
+    }
+
+    private void showMaintenanceDetails(MaintenanceRecordView record) {
+        Dialog dialog = Dialogs.details("Archived Maintenance Details");
+        Dialogs.field(dialog, "Maintenance number", record.id());
+        Dialogs.field(dialog, "Bus", fleetService.getUnit(record.fleetUnitId()).unitNumber());
+        Dialogs.field(dialog, "Type", record.maintenanceType());
+        Dialogs.field(dialog, "Status", record.maintenanceStatus());
+        Dialogs.field(dialog, "Description", record.description());
+        Dialogs.field(dialog, "Completed at", record.completedAt());
+        Dialogs.field(dialog, "Technician notes", record.technicianNotes());
+        Grid<com.transit.arctransit.maintenance.MaintenanceHistoryView> history = DataGrids.create();
+        history.addColumn(com.transit.arctransit.maintenance.MaintenanceHistoryView::recordedAt).setHeader("Time");
+        history.addColumn(com.transit.arctransit.maintenance.MaintenanceHistoryView::status).setHeader("Status");
+        history.addColumn(com.transit.arctransit.maintenance.MaintenanceHistoryView::recordedBy).setHeader("By");
+        history.addColumn(com.transit.arctransit.maintenance.MaintenanceHistoryView::reason).setHeader("Reason").setWidth("300px");
+        history.setHeight("250px");
+        history.setItemsPageable(pageable -> maintenanceService.history(record.id(), pageable).getContent());
+        dialog.add(new H3("History"), history);
+        dialog.open();
+    }
+
+    private void showIncidentDetails(IncidentView incident) {
+        Dialog dialog = Dialogs.details("Archived Incident Details");
+        Dialogs.field(dialog, "Incident number", incident.id());
+        Dialogs.field(dialog, "Title", incident.title());
+        Dialogs.field(dialog, "Description", incident.description());
+        Dialogs.field(dialog, "Severity", incident.severity());
+        Dialogs.field(dialog, "Status", incident.status());
+        Dialogs.field(dialog, "Reported by", incident.reportedBy());
+        Dialogs.field(dialog, "Reported at", incident.reportedAt());
+        Dialogs.field(dialog, "Resolved at", incident.resolvedAt());
+        Dialogs.field(dialog, "Resolution notes", incident.resolutionNotes());
+        Dialogs.field(dialog, "Linked maintenance number", incident.maintenanceRecordId());
+        Grid<com.transit.arctransit.incident.IncidentEventView> history = DataGrids.create();
+        history.addColumn(com.transit.arctransit.incident.IncidentEventView::recordedAt).setHeader("Time");
+        history.addColumn(com.transit.arctransit.incident.IncidentEventView::newStatus).setHeader("Status");
+        history.addColumn(com.transit.arctransit.incident.IncidentEventView::recordedBy).setHeader("By");
+        history.addColumn(com.transit.arctransit.incident.IncidentEventView::reason).setHeader("Reason").setWidth("300px");
+        history.setHeight("250px");
+        history.setItems(incidentService.getHistory(incident.id()));
+        dialog.add(new H3("History"), history);
+        dialog.open();
+    }
+
+    private void configureReportGrid() {
+        reportGrid.setSizeFull();
+        reportGrid.addColumn(OperationalReportView::id).setHeader("Report Number");
+        reportGrid.addColumn(this::reportRecordLabel).setHeader("Affected Record").setWidth("240px");
+        reportGrid.addColumn(OperationalReportView::description).setHeader("Reported Information").setWidth("320px");
+        reportGrid.addColumn(OperationalReportView::sourceType).setHeader("Source");
+        reportGrid.addColumn(OperationalReportView::verificationStatus).setHeader("Verification");
+        reportGrid.addColumn(OperationalReportView::reportedBy).setHeader("Recorded By");
+        reportGrid.addColumn(OperationalReportView::archivedAt).setHeader("Archived At");
+        reportGrid.addComponentColumn(report -> {
+            Button restore = new Button("Restore", event -> {
+                try {
+                    reportService.restoreReport(report.id());
+                    reportGrid.getDataProvider().refreshAll();
+                    showSuccess("Operational report restored.");
+                } catch (RuntimeException exception) {
+                    ApplicationErrors.show(exception);
+                }
+            });
+            Button delete = new Button("Delete Permanently", event -> openDeleteDialog("Operational Report " + report.id(), () -> {
+                reportService.hardDeleteReport(report.id());
+                reportGrid.getDataProvider().refreshAll();
+            }));
+            delete.addThemeVariants(ButtonVariant.LUMO_ERROR);
+            return new HorizontalLayout(new Button("Details & History", event -> showReportDetails(report)), restore, delete);
+        }).setHeader("Actions");
+        reportGrid.addItemDoubleClickListener(event -> showReportDetails(event.getItem()));
+        reportGrid.setItemsPageable(pageable -> reportService.searchArchivedReports(currentSearchFilter,
+                PageRequest.of(pageable.getPageNumber(), pageable.getPageSize(), Sort.by(Sort.Direction.DESC, "archivedAt", "id")))
+                .getContent());
+    }
+
+    private String reportRecordLabel(OperationalReportView report) {
+        try {
+            return switch (report.entityType()) {
+                case "FLEET" -> fleetService.getUnit(report.entityId()).unitNumber();
+                case "DRIVER" -> {
+                    var driver = driverService.getDriver(report.entityId());
+                    yield driver.employeeNumber() + " - " + driver.firstName() + " " + driver.lastName();
+                }
+                case "ROUTE" -> {
+                    var route = routeService.getRoute(report.entityId());
+                    yield route.routeCode() + " - " + route.routeName();
+                }
+                default -> {
+                    var trip = dispatchService.getAssignment(report.entityId());
+                    yield "Dispatch #" + trip.id() + " - " + trip.fleetUnitNumber() + " - " + trip.routeCode();
+                }
+            };
+        } catch (com.transit.arctransit.common.exception.ResourceNotFoundException exception) {
+            return report.entityType() + " #" + report.entityId() + " (no longer available)";
+        }
+    }
+
+    private void showReportDetails(OperationalReportView report) {
+        Dialog dialog = Dialogs.details("Archived Operational Report Details");
+        Dialogs.field(dialog, "Report number", report.id());
+        Dialogs.field(dialog, "Affected record", reportRecordLabel(report));
+        Dialogs.field(dialog, "Reported information", report.description());
+        Dialogs.field(dialog, "Source", report.sourceType());
+        Dialogs.field(dialog, "Recorded by", report.reportedBy());
+        Dialogs.field(dialog, "Reported at", report.reportedAt());
+        Dialogs.field(dialog, "Effective at", report.effectiveAt());
+        Dialogs.field(dialog, "Verification", report.verificationStatus());
+        Dialogs.field(dialog, "Reviewed by", report.verifiedBy());
+        Dialogs.field(dialog, "Reviewed at", report.verifiedAt());
+        Dialogs.field(dialog, "Evidence and reason", report.verificationReason());
+        Dialogs.field(dialog, "Archived at", report.archivedAt());
+        Grid<ReportVerificationView> history = DataGrids.create();
+        history.addColumn(ReportVerificationView::recordedAt).setHeader("Time");
+        history.addColumn(ReportVerificationView::newStatus).setHeader("Verification");
+        history.addColumn(ReportVerificationView::recordedBy).setHeader("By");
+        history.addColumn(ReportVerificationView::reason).setHeader("Reason").setWidth("300px");
+        history.setHeight("250px");
+        history.setItems(reportService.getVerificationHistory(report.id()));
+        dialog.add(new H3("Verification History"), history);
+        dialog.open();
+    }
+
+    private void configureUserGrid() {
+        userGrid.setSizeFull();
+        userGrid.addColumn(UserSummaryView::username).setHeader("Username");
+        userGrid.addColumn(UserSummaryView::displayName).setHeader("Name");
+        userGrid.addColumn(UserSummaryView::accountStatus).setHeader("Status");
+        userGrid.addComponentColumn(user -> createActionButtons("User " + user.username(), () -> {
+            userService.hardDeleteUser(user.username());
+            userGrid.getDataProvider().refreshAll();
+            detailsDialog.close();
+        }, null)).setHeader("Actions");
+        userGrid.setItemsPageable(pageable -> userService.searchArchivedUsers(
+                new UserQuery(currentSearchFilter),
+                PageRequest.of(pageable.getPageNumber(), pageable.getPageSize(),
+                        Sort.by("username"))).getContent());
+        userGrid.addItemDoubleClickListener(event -> {
+            var user = event.getItem();
+            showDetails("Archived User", """
+                        Username: %s
+                        Name: %s
+                        Status: %s
+                        This archived account is disabled. Its identity and history are retained.
+                        """.formatted(user.username(), user.displayName(), user.accountStatus()));
+        });
     }
 
     // fleet grid
@@ -271,11 +475,9 @@ public class ArchiveView extends VerticalLayout {
         )
         .setHeader("Actions");
 
-        fleetGrid.addSelectionListener(
-                event ->
-                        event.getFirstSelectedItem()
-                                .ifPresent(unit ->
-                                        showDetails(
+        fleetGrid.addItemDoubleClickListener(event -> {
+            var unit = event.getItem();
+            showDetails(
                                                 "Archived Bus",
                                                 """
                                                 Unit: %s
@@ -286,9 +488,8 @@ public class ArchiveView extends VerticalLayout {
                                                         unit.plateNumber(),
                                                         unit.operationalStatus()
                                                 )
-                                        )
-                                )
-        );
+                                        );
+        });
     }
 
     // driver grid
@@ -336,11 +537,9 @@ public class ArchiveView extends VerticalLayout {
         )
         .setHeader("Actions");
 
-        driverGrid.addSelectionListener(
-                event ->
-                        event.getFirstSelectedItem()
-                                .ifPresent(driver ->
-                                        showDetails(
+        driverGrid.addItemDoubleClickListener(event -> {
+            var driver = event.getItem();
+            showDetails(
                                                 "Archived Driver",
                                                 """
                                                 Name: %s
@@ -349,9 +548,8 @@ public class ArchiveView extends VerticalLayout {
                                                         driver.fullName(),
                                                         driver.licenseNumber()
                                                 )
-                                        )
-                                )
-        );
+                                        );
+        });
     }
 
     // route grid
@@ -399,11 +597,9 @@ public class ArchiveView extends VerticalLayout {
         )
         .setHeader("Actions");
 
-        routeGrid.addSelectionListener(
-                event ->
-                        event.getFirstSelectedItem()
-                                .ifPresent(route ->
-                                        showDetails(
+        routeGrid.addItemDoubleClickListener(event -> {
+            var route = event.getItem();
+            showDetails(
                                                 "Archived Route",
                                                 """
                                                 Code: %s
@@ -412,9 +608,8 @@ public class ArchiveView extends VerticalLayout {
                                                         route.routeCode(),
                                                         route.routeName()
                                                 )
-                                        )
-                                )
-        );
+                                        );
+        });
     }
 
     // dispatch grid
@@ -447,7 +642,11 @@ public class ArchiveView extends VerticalLayout {
                         createActionButtons(
                                 "Dispatch Assignment #"
                                         + dispatch.id(),
-                                null,
+                                () -> {
+                                    dispatchService.hardDeleteAssignment(dispatch.id());
+                                    refreshDispatches();
+                                    detailsDialog.close();
+                                },
                                 () -> {
                                     dispatchService
                                             .unarchiveAssignment(
@@ -460,26 +659,25 @@ public class ArchiveView extends VerticalLayout {
         )
         .setHeader("Actions");
 
-        dispatchGrid.addSelectionListener(
-                event ->
-                        event.getFirstSelectedItem()
-                                .ifPresent(dispatch ->
-                                        showDetails(
+        dispatchGrid.addItemDoubleClickListener(event -> {
+            var dispatch = event.getItem();
+            showDetails(
                                                 "Archived Dispatch",
                                                 """
+                                                Record ID: %s
                                                 Bus: %s
                                                 Driver: %s
                                                 Route: %s
                                                 Status: %s
                                                 """.formatted(
+                                                        dispatch.id(),
                                                         dispatch.fleetUnitNumber(),
                                                         dispatch.driverName(),
                                                         dispatch.routeCode(),
                                                         dispatch.dispatchStatus()
                                                 )
-                                        )
-                                )
-        );
+                                        );
+        });
     }
 
     // action buttons
@@ -547,7 +745,7 @@ public class ArchiveView extends VerticalLayout {
             );
 
             deleteButton.setTooltipText(
-                    "Hard Delete"
+                    "Delete Permanently"
             );
 
             deleteButton.addClickListener(
@@ -571,8 +769,8 @@ public class ArchiveView extends VerticalLayout {
             String entityName,
             Runnable deleteAction) {
 
-        ConfirmDialog dialog =
-                new ConfirmDialog();
+        ConfirmationDialog dialog =
+                new ConfirmationDialog();
 
         dialog.setHeader(
                 "Permanently Delete "
@@ -581,15 +779,14 @@ public class ArchiveView extends VerticalLayout {
         );
 
         dialog.setText(
-                "This action cannot be undone "
-                        + "and will permanently erase "
-                        + "the record from the database."
+                "This action cannot be undone. It removes the archived record. "
+                        + "Audit and retained business history remain. Linked records may prevent deletion."
         );
 
         dialog.setCancelable(true);
 
         dialog.setConfirmText(
-                "Delete Forever"
+                "Delete Permanently"
         );
 
         dialog.setConfirmButtonTheme(
@@ -610,10 +807,7 @@ public class ArchiveView extends VerticalLayout {
 
                     } catch (RuntimeException exception) {
 
-                        showError(
-                                exception
-                                        .getMessage()
-                        );
+                        ApplicationErrors.show(exception);
                     }
                 }
         );
@@ -622,77 +816,21 @@ public class ArchiveView extends VerticalLayout {
     }
 
     // details panel
-    private void showDetails(
-            String title,
-            String content) {
-
-        sidePanelContent.removeAll();
-
-        sidePanelContent.add(
-                new H3(title),
-                new Paragraph(content)
-        );
-
-        sidePanel.setVisible(true);
-
-        splitLayout.setSplitterPosition(75);
+    private void showDetails(String title, String content) {
+        detailsDialog.removeAll();
+        detailsDialog.setHeaderTitle(title);
+        Paragraph details = new Paragraph(content);
+        details.getStyle().set("white-space", "pre-wrap").set("overflow-wrap", "anywhere");
+        detailsDialog.add(details);
+        detailsDialog.open();
     }
 
     // side panel
-    private void configureSidePanel() {
 
-        Button closeButton =
-                new Button(
-                        VaadinIcon.CLOSE.create(),
-                        event ->
-                                hideSidePanel()
-                );
-
-        closeButton.addThemeVariants(
-                ButtonVariant.LUMO_TERTIARY
-        );
-
-        HorizontalLayout header =
-                new HorizontalLayout(
-                        new H3("Details"),
-                        closeButton
-                );
-
-        header.setWidthFull();
-
-        header.setJustifyContentMode(
-                FlexComponent.JustifyContentMode.BETWEEN
-        );
-
-        header.setDefaultVerticalComponentAlignment(
-                FlexComponent.Alignment.CENTER
-        );
-
-        sidePanel.add(
-                header,
-                sidePanelContent
-        );
-
-        sidePanel.setVisible(false);
-        sidePanel.setWidth("350px");
-
-        sidePanel.getStyle()
-                .set(
-                        "background-color",
-                        "#ffffff"
-                )
-                .set(
-                        "border-left",
-                        "1px solid #ddd"
-                );
-    }
 
     // hide side panel
-    private void hideSidePanel() {
-
-        sidePanel.setVisible(false);
-
-        splitLayout.setSplitterPosition(100);
+    private void closeDetails() {
+        detailsDialog.close();
     }
 
     // refresh all archives
@@ -702,6 +840,10 @@ public class ArchiveView extends VerticalLayout {
         refreshDrivers();
         refreshRoutes();
         refreshDispatches();
+        userGrid.getDataProvider().refreshAll();
+        maintenanceGrid.getDataProvider().refreshAll();
+        incidentGrid.getDataProvider().refreshAll();
+        reportGrid.getDataProvider().refreshAll();
     }
 
     // refresh fleet archive

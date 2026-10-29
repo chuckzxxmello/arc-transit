@@ -1,5 +1,10 @@
 package com.transit.arctransit.maintenance;
 
+import com.transit.arctransit.common.validation.SafeText;
+import jakarta.validation.constraints.Size;
+import jakarta.validation.constraints.NotBlank;
+import jakarta.validation.constraints.Positive;
+import jakarta.validation.constraints.NotNull;
 import jakarta.validation.Valid;
 
 import org.springframework.data.domain.Page;
@@ -8,35 +13,41 @@ import org.springframework.data.domain.Pageable;
 // public application contract for Maintenance
 public interface MaintenanceService {
 
+    Page<MaintenanceRecordView> searchArchivedRecords(@Size(max = 200) @SafeText String filter, Pageable pageable);
+
+    MaintenanceRecordView getRecord(@NotNull @Positive Long id);
+
+    Page<MaintenanceHistoryView> history(@NotNull @Positive Long id, Pageable pageable);
+
     // request maintenance
     MaintenanceRecordView requestMaintenance(
-            @Valid CreateMaintenanceCommand command
+            @NotNull @Valid CreateMaintenanceCommand command
     );
 
     // approve request
     MaintenanceRecordView approveMaintenance(
-            Long recordId
+            @NotNull @Positive Long recordId
     );
 
     // start maintenance
     MaintenanceRecordView startMaintenance(
-            Long recordId
+            @NotNull @Positive Long recordId
     );
 
     // complete maintenance
     MaintenanceRecordView completeMaintenance(
-            Long recordId,
-            String technicianNotes
+            @NotNull @Positive Long recordId,
+            @NotBlank @Size(max = 500) @SafeText(multiline = true) String technicianNotes
     );
 
     // cancel maintenance
     MaintenanceRecordView cancelMaintenance(
-            Long recordId
+            @NotNull @Positive Long recordId
     );
 
     // count active maintenance for a fleet unit
     long countActiveMaintenanceForUnit(
-            Long fleetUnitId
+            @NotNull @Positive Long fleetUnitId
     );
 
     // search maintenance records

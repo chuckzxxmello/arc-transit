@@ -72,6 +72,9 @@ public class MaintenanceRecord {
     )
     private Instant completedAt;
 
+    @Column(name = "archived_at")
+    private Instant archivedAt;
+
     @Column(
             name = "technician_notes",
             columnDefinition = "TEXT"
@@ -171,6 +174,7 @@ public class MaintenanceRecord {
                 technicianNotes;
 
         this.completedAt = now;
+        this.archivedAt = now;
         this.updatedAt = now;
     }
 
@@ -245,6 +249,10 @@ public class MaintenanceRecord {
 
     public Instant getCompletedAt() {
         return completedAt;
+    }
+
+    public Instant getArchivedAt() {
+        return archivedAt;
     }
 
     public String getTechnicianNotes() {

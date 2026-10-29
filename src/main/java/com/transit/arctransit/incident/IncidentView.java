@@ -27,7 +27,11 @@ public record IncidentView(
 
         Instant resolvedAt,
 
-        String resolutionNotes
+        String resolutionNotes,
+        Instant effectiveAt,
+        String sourceType,
+        Long operationalReportId,
+        Long maintenanceRecordId
 
 ) {
 }

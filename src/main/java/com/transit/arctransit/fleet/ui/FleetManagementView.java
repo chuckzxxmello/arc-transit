@@ -1,11 +1,20 @@
 package com.transit.arctransit.fleet.ui;
 
+import com.transit.arctransit.common.ui.RefreshButton;
+import com.transit.arctransit.common.ui.Dialogs;
+import com.transit.arctransit.common.ui.FormInputs;
+
 import com.transit.arctransit.fleet.CreateFleetUnitCommand;
+import com.transit.arctransit.fleet.ChangeVehicleAvailabilityCommand;
+import com.transit.arctransit.fleet.VehicleAvailabilityHistoryView;
+import com.vaadin.flow.component.textfield.TextArea;
+import java.time.Instant;
 import com.transit.arctransit.fleet.FleetManagementService;
 import com.transit.arctransit.fleet.FleetUnitQuery;
 import com.transit.arctransit.fleet.FleetUnitSummaryView;
 import com.transit.arctransit.fleet.FleetUnitView;
 import com.transit.arctransit.fleet.UpdateFleetUnitCommand;
+import com.transit.arctransit.fleet.UpdateFleetStateCommand;
 
 import com.transit.arctransit.common.exception.BusinessConflictException;
 import com.transit.arctransit.common.exception.CommandValidationException;
@@ -15,10 +24,11 @@ import com.transit.arctransit.common.ui.MainLayout;
 import com.vaadin.flow.component.button.Button;
 import com.vaadin.flow.component.button.ButtonVariant;
 import com.vaadin.flow.component.combobox.ComboBox;
-import com.vaadin.flow.component.confirmdialog.ConfirmDialog;
+import com.transit.arctransit.common.ui.ConfirmationDialog;
 import com.vaadin.flow.component.dialog.Dialog;
 import com.vaadin.flow.component.formlayout.FormLayout;
 import com.vaadin.flow.component.grid.Grid;
+import com.transit.arctransit.common.ui.DataGrids;
 import com.vaadin.flow.component.html.Div;
 import com.vaadin.flow.component.html.H2;
 import com.vaadin.flow.component.html.H3;
@@ -29,7 +39,6 @@ import com.vaadin.flow.component.notification.NotificationVariant;
 import com.vaadin.flow.component.orderedlayout.FlexComponent;
 import com.vaadin.flow.component.orderedlayout.HorizontalLayout;
 import com.vaadin.flow.component.orderedlayout.VerticalLayout;
-import com.vaadin.flow.component.splitlayout.SplitLayout;
 import com.vaadin.flow.component.textfield.IntegerField;
 import com.vaadin.flow.component.textfield.TextField;
 import com.vaadin.flow.data.value.ValueChangeMode;
@@ -61,26 +70,16 @@ public class FleetManagementView extends VerticalLayout {
     private static final String SYSTEM_ADMIN_ROLE = "SYSTEM_ADMIN";
     private static final String OPERATIONS_STAFF_ROLE = "OPERATIONS_STAFF";
 
-    private static final java.util.List<String>
-								            OPERATIONAL_STATUSES = java.util.List.of(
-															                    "ACTIVE",
-															                    "INACTIVE",
-															                    "UNDER_MAINTENANCE",
-															                    "OUT_OF_SERVICE"
-								            );
-
     private final FleetManagementService fleetService;
 
   
     private final transient AuthenticationContext authenticationContext;
 
-    private final Grid<FleetUnitSummaryView> grid = new Grid<>();
+    private final Grid<FleetUnitSummaryView> grid = DataGrids.create();
 
-    private final SplitLayout splitLayout = new SplitLayout();
 
-    private final VerticalLayout sidePanel = new VerticalLayout();
+    private final Dialog detailsDialog = Dialogs.details("Bus Details");
 
-    private final Div sidePanelContent = new Div();
 
     private String currentSearchFilter = "";
 
@@ -92,7 +91,6 @@ public class FleetManagementView extends VerticalLayout {
     this.authenticationContext = authenticationContext;
 
 																	configureView();
-																	configureSidePanel();
 																	configureGrid();
 
 	HorizontalLayout header = createHeader();
@@ -105,16 +103,8 @@ public class FleetManagementView extends VerticalLayout {
 															gridContainer.setPadding(false);
 															gridContainer.setSpacing(false);
 
-        splitLayout.addToPrimary(gridContainer);
-
-        splitLayout.addToSecondary(sidePanel);
-
-        splitLayout.setSplitterPosition(100);
-        splitLayout.setSizeFull();
-
-        add(splitLayout);
-
-        expand(splitLayout);
+        add(gridContainer);
+        expand(gridContainer);
     }
 
     // fleet dashbboard view
@@ -144,7 +134,7 @@ public class FleetManagementView extends VerticalLayout {
 
         								title.getStyle().set("margin", "0");
 
-        TextField searchField = new TextField();
+        TextField searchField = FormInputs.text(new TextField(), 200);
 
 			        searchField.setPlaceholder("Search unit or plate...");
 			
@@ -171,8 +161,9 @@ public class FleetManagementView extends VerticalLayout {
 
         HorizontalLayout actions = new HorizontalLayout(
 							                        searchField,
-							                        addButton
-        );
+							                        addButton,
+                        new RefreshButton(this::refreshGrid)
+                );
 
 		        actions.setDefaultVerticalComponentAlignment(
 		                								FlexComponent.Alignment.CENTER
@@ -206,10 +197,12 @@ public class FleetManagementView extends VerticalLayout {
 											        .setHeader("Capacity")
 											        .setSortable(true);
 
-        grid.addColumn(FleetUnitSummaryView::operationalStatus)
-											        .setKey("operationalStatus")
-											        .setHeader("Status")
+        grid.addColumn(FleetUnitSummaryView::administrativeStatus)
+											        .setKey("administrativeStatus")
+											        .setHeader("Administrative Status")
 											        .setSortable(true);
+
+        grid.addColumn(FleetUnitSummaryView::availability).setHeader("Reported Availability");
 
         grid.setItemsPageable(pageable -> fleetService
 							                        .searchUnits(
@@ -225,10 +218,7 @@ public class FleetManagementView extends VerticalLayout {
         grid.addComponentColumn(this::createActionButtons)
         											.setHeader("Actions");
 
-        grid.addSelectionListener(event ->
-                						event.getFirstSelectedItem()
-                									.ifPresent(this::showDetails)
-        );
+        grid.addItemDoubleClickListener(event -> showDetails(event.getItem()));
     }
 
     private HorizontalLayout createActionButtons(FleetUnitSummaryView unit) {
@@ -265,103 +255,61 @@ public class FleetManagementView extends VerticalLayout {
     }
 
     // side panel
-    private void configureSidePanel() {
 
-        Button closeButton = new Button(
-			                        VaadinIcon.CLOSE.create(),
-			                        event -> hideSidePanel()
-        );
-
-			        closeButton.addThemeVariants(ButtonVariant.LUMO_TERTIARY);
-			
-			        HorizontalLayout header = new HorizontalLayout(
-										                        new H3("Bus Details"),
-										                        				closeButton
-			        );
-
-        header.setWidthFull();
-
-        header.setJustifyContentMode(FlexComponent.JustifyContentMode.BETWEEN);
-
-        header.setDefaultVerticalComponentAlignment(
-                								FlexComponent.Alignment.CENTER
-        );
-
-									        sidePanel.add(
-										                header,
-										                sidePanelContent
-									        );
-									
-									        sidePanel.setVisible(false);
-									        sidePanel.setWidth("350px");
-									
-									        sidePanel.getStyle()
-											                .set(
-											                        "background-color",
-											                        "#ffffff"
-											                )
-											                .set(
-											                        "border-left",
-											                        "1px solid #ddd"
-											                );
-    }
 
     private void showDetails(FleetUnitSummaryView unit) {
 
-        sidePanelContent.removeAll();
+        detailsDialog.removeAll();
+        Dialogs.field(detailsDialog, "Record ID", unit.id());
 
-        sidePanelContent.add(
+        detailsDialog.add(
 			                new Paragraph(
 			                        "Unit Number: "
 			                                + unit.unitNumber()
 			                )
         );
 
-        sidePanelContent.add(
+        detailsDialog.add(
 			                new Paragraph(
 			                        "Plate Number: "
 			                                + unit.plateNumber()
 			                )
         );
 
-        sidePanelContent.add(
+        detailsDialog.add(
 			                new Paragraph(
 			                        "Capacity: "
 			                                + unit.capacity()
 			                )
         );
 
-        sidePanelContent.add(
+        detailsDialog.add(
 			                new Paragraph(
-			                        "Status: "
-			                                + unit.operationalStatus()
+			                        "Administrative status: "
+                                + unit.administrativeStatus()
 			                )
         );
 
-        sidePanel.setVisible(true);
-
-        splitLayout.setSplitterPosition(75);
+        Dialogs.field(detailsDialog, "Reported availability", unit.availability());
+        detailsDialog.open();
     }
 
-    private void hideSidePanel() {
-
-				        sidePanel.setVisible(false);
-				
-				        splitLayout.setSplitterPosition(100);
+    private void closeDetails() {
+        detailsDialog.close();
     }
 
     // create
     private void openCreateDialog() {
 
-        					Dialog dialog = new Dialog();
+        Dialog dialog = Dialogs.create();
 
         											dialog.setHeaderTitle("Register New Bus");
 
-        TextField unitNumber = new TextField("Unit Number");
+        TextField unitNumber = FormInputs.text(new TextField("Unit Number"), 30);
 
-        TextField plateNumber = new TextField("Plate Number");
+        TextField plateNumber = FormInputs.text(new TextField("Plate Number"), 20);
 
-        IntegerField capacity = new IntegerField("Capacity");
+        IntegerField capacity = FormInputs.integer(new IntegerField("Capacity"), 1, 80);
 
 										        unitNumber.setRequiredIndicatorVisible(true);
 										        plateNumber.setRequiredIndicatorVisible(true);
@@ -369,7 +317,7 @@ public class FleetManagementView extends VerticalLayout {
 										
 										        capacity.setMin(1);
 										        capacity.setMax(
-										                	(int) Short.MAX_VALUE
+                80
 										        );
 										        capacity.setValue(40);
 
@@ -381,6 +329,10 @@ public class FleetManagementView extends VerticalLayout {
 
         Button saveButton = new Button("Save",
                         				event -> {
+                            if (!FormInputs.validate(dialog)) {
+                                return;
+                            }
+
 
 					                            Short value = getCapacity(capacity);
 					
@@ -443,30 +395,30 @@ public class FleetManagementView extends VerticalLayout {
             return;
         }
 
-        Dialog dialog = new Dialog();
+        Dialog dialog = Dialogs.create();
 
 							        dialog.setHeaderTitle(
 							                "Edit Bus: "
 							                        + unit.unitNumber()
 							        );
 
-        TextField unitNumber = new TextField("Unit Number");
+        TextField unitNumber = FormInputs.text(new TextField("Unit Number"), 30);
 
 											        unitNumber.setValue(
 											                unit.unitNumber()
 											        );
 
-        TextField plateNumber = new TextField("Plate Number");
+        TextField plateNumber = FormInputs.text(new TextField("Plate Number"), 20);
 
 											        plateNumber.setValue(
 											                unit.plateNumber()
 											        );
 
-        IntegerField capacity = new IntegerField("Capacity");
+        IntegerField capacity = FormInputs.integer(new IntegerField("Capacity"), 1, 80);
 
 											        capacity.setMin(1);
 											        capacity.setMax(
-											                	(int) Short.MAX_VALUE
+                80
 											        );
 											        capacity.setValue(
 											                	(int) unit.capacity()
@@ -481,6 +433,10 @@ public class FleetManagementView extends VerticalLayout {
         Button saveButton = new Button(
 			                        "Save",
 			                        event -> {
+                            if (!FormInputs.validate(dialog)) {
+                                return;
+                            }
+
 			
 			                            Short value = getCapacity(
 			                                            		capacity
@@ -536,104 +492,76 @@ public class FleetManagementView extends VerticalLayout {
     }
 
     // status dialog
-    private void openStatusDialog(
-					            Long unitId,
-					            String currentStatus) {
+    private void openStatusDialog(Long unitId, String currentStatus) {
+        final FleetUnitView unit;
+        try {
+            unit = fleetService.getUnit(unitId);
+        } catch (RuntimeException exception) {
+            showError("Load fleet unit", exception);
+            return;
+        }
+        Dialog dialog = Dialogs.create();
+        dialog.setHeaderTitle("Bus Status: " + unit.unitNumber());
+        dialog.setWidth("560px");
+        ComboBox<String> administrativeStatus = FormInputs.choice(new ComboBox<>("Administrative Status"));
+        administrativeStatus.setRequiredIndicatorVisible(true);
+        administrativeStatus.setItems("ACTIVE", "INACTIVE");
+        administrativeStatus.setValue(unit.administrativeStatus());
+        ComboBox<String> availability = FormInputs.choice(new ComboBox<>("Reported Availability"));
+        availability.setRequiredIndicatorVisible(true);
+        availability.setItems("AVAILABLE", "MAINTENANCE", "INSPECTION_HOLD", "OUT_OF_SERVICE", "UNKNOWN");
+        availability.setValue(unit.availability());
+        TextArea reason = FormInputs.notes(new TextArea("Reason for Availability Change"));
+        reason.setWidthFull();
+        availability.addValueChangeListener(event -> {
+            reason.setRequiredIndicatorVisible(!unit.availability().equals(event.getValue()));
+            reason.setInvalid(false);
+        });
+        Button save = new Button("Save", event -> {
+            if (!FormInputs.validate(dialog)) {
+                return;
+            }
+            try {
+                fleetService.updateState(new UpdateFleetStateCommand(unitId,
+                        administrativeStatus.getValue(), availability.getValue(), reason.getValue()));
+                dialog.close();
+                closeDetails();
+                refreshGrid();
+                showSuccess("Administrative status and reported availability saved.");
+            } catch (RuntimeException exception) {
+                showError("Update bus status", exception);
+            }
+        });
+        save.addThemeVariants(ButtonVariant.LUMO_PRIMARY);
+        dialog.add(new VerticalLayout(administrativeStatus, availability, reason));
+        dialog.getFooter().add(new Button("History", event -> openAvailabilityHistory(unitId)),
+                new Button("Cancel", event -> dialog.close()), save);
+        dialog.open();
+    }
 
-        Dialog dialog = new Dialog();
-
-							        dialog.setHeaderTitle(
-							                			"Change Operational Status"
-							        );
-
-        ComboBox<String> statusCombo = new ComboBox<>("New Status");
-
-										        statusCombo.setItems(
-										                OPERATIONAL_STATUSES
-										        );
-										
-										        statusCombo.setValue(
-										                currentStatus
-										        );
-										
-										        statusCombo.setRequiredIndicatorVisible(
-										                true
-										        );
-
-										        					dialog.add(statusCombo);
-
-        Button saveButton = new Button(
-			                       "Update Status",
-			                       event -> {
-
-				                   String status = statusCombo.getValue();
-				
-				                            if (status == null || status.isBlank()) {
-				
-					                                showError(
-					                                        "Update status",
-								                                        new CommandValidationException(
-								                                                "Operational status must be selected."
-								                                        )
-					                                );
-				
-				                                return;
-				                            }
-
-		                            try {
-		
-		                                fleetService.changeStatus(
-						                                        unitId,
-						                                        status
-		                                );
-		
-								                                dialog.close();
-								                                refreshGrid();
-		
-					                                showSuccess(
-					                                        "Status updated successfully."
-					                                );
-		
-		                            } catch (RuntimeException exception) {
-		
-					                                showError(
-					                                        "Update status",
-					                                        			exception
-					                                );
-		                            }
-		                        }
-        );
-
-        saveButton.addThemeVariants(
-                				ButtonVariant.LUMO_PRIMARY
-        );
-
-        Button cancelButton = new Button(
-				                        "Cancel",
-				                        event -> dialog.close()
-        );
-
-												        dialog.getFooter().add(
-															                cancelButton,
-															                saveButton
-												        );
-												
-												        dialog.add(
-												                statusCombo
-												        );
-												
-												        dialog.getFooter().add(
-															                cancelButton,
-															                saveButton
-												        );
-												
-												        dialog.open();
+    private void openAvailabilityHistory(Long unitId) {
+        Dialog dialog = Dialogs.create();
+        dialog.setHeaderTitle("Vehicle Availability History");
+        dialog.setWidth("1000px");
+        Grid<VehicleAvailabilityHistoryView> history = DataGrids.create();
+        history.addColumn(VehicleAvailabilityHistoryView::previousAvailability).setHeader("Previous");
+        history.addColumn(VehicleAvailabilityHistoryView::availability).setHeader("Reported Availability");
+        history.addColumn(VehicleAvailabilityHistoryView::effectiveAt).setHeader("Effective Time");
+        history.addColumn(VehicleAvailabilityHistoryView::recordedAt).setHeader("Recorded Time");
+        history.addColumn(VehicleAvailabilityHistoryView::recordedBy).setHeader("Recorded By");
+        history.addColumn(VehicleAvailabilityHistoryView::sourceType).setHeader("Source");
+        history.addColumn(VehicleAvailabilityHistoryView::verificationStatus).setHeader("Verification");
+        history.addColumn(VehicleAvailabilityHistoryView::reason).setHeader("Reason");
+        history.setItemsPageable(pageable -> fleetService.availabilityHistory(unitId, pageable).getContent());
+        dialog.add(history);
+        dialog.getFooter().add(new Button("Close", event -> dialog.close()));
+        dialog.open();
     }
 
     // archive
     private void openArchiveDialog(FleetUnitSummaryView unit) {
 
-        ConfirmDialog dialog = new ConfirmDialog();
+        ConfirmationDialog dialog = new ConfirmationDialog();
 
 							        dialog.setHeader(
 							                	"Archive fleet unit?"
@@ -666,7 +594,7 @@ public class FleetManagementView extends VerticalLayout {
 										                        );
 										
 													                        refreshGrid();
-													                        hideSidePanel();
+													                        closeDetails();
 													
 													                        showSuccess(
 													                                "Fleet unit archived successfully."
@@ -707,12 +635,12 @@ public class FleetManagementView extends VerticalLayout {
 					            return null;
 					        }
 					
-					        if (value > Short.MAX_VALUE) {
+					        if (value > 80) {
 					
 								            showError(
 								                    "Validate capacity",
 											                    new CommandValidationException(
-											                            "Capacity exceeds the supported limit."
+											                            "Capacity must not exceed 80 passengers."
 											                    )
 								            );
 					
@@ -743,35 +671,7 @@ public class FleetManagementView extends VerticalLayout {
     private void showError(
 			            String operation,
 			            RuntimeException exception) {
-
-
-        if (exception instanceof BusinessConflictException
-				                || exception instanceof CommandValidationException
-				                || exception instanceof ResourceNotFoundException) {
-
-								            log.warn(
-								                    "{} failed: {}",
-								                    operation,
-								                    exception.getMessage()
-								            );
-								
-												            showErrorNotification(
-												                    exception.getMessage()
-												            );
-
-            return;
-        }
-
-		        log.error(
-		                "{} failed unexpectedly.",
-								                operation,
-								                exception
-		        );
-		
-		        showErrorNotification(
-		                "The operation could not be completed. "
-		                								+ "Please try again."
-		        );
+        com.transit.arctransit.common.ui.ApplicationErrors.show(exception);
     }
 
     private void showErrorNotification(String message) {

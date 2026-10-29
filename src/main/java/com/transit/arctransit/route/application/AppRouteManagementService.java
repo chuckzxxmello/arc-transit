@@ -16,6 +16,15 @@ import com.transit.arctransit.route.domain.Route;
 import com.transit.arctransit.route.domain.RouteRepository;
 import com.transit.arctransit.route.domain.RouteStatus;
 import com.transit.arctransit.route.domain.RouteStop;
+import com.transit.arctransit.route.domain.RouteVersion;
+import com.transit.arctransit.route.domain.RouteVersionRepository;
+import com.transit.arctransit.route.RouteVersionView;
+import com.transit.arctransit.route.RouteScheduleView;
+import com.transit.arctransit.route.domain.RouteScheduleRepository;
+import org.springframework.validation.annotation.Validated;
+import org.springframework.beans.factory.annotation.Value;
+import java.time.LocalDate;
+import java.time.ZoneId;
 
 // common and audit
 
@@ -46,6 +55,7 @@ import org.springframework.transaction.annotation.Transactional;
 // route management service
 
 @Service
+@Validated
 @Transactional
 public class AppRouteManagementService
         implements RouteManagementService {
@@ -62,15 +72,24 @@ public class AppRouteManagementService
     private final RouteRepository routeRepository;
 
     private final AuditRecordingService auditService;
+    private final RouteVersionRepository versionRepository;
+    private final RouteScheduleRepository scheduleRepository;
+
+    @Value("${arc.service-zone:Asia/Manila}")
+    private String serviceZone = "Asia/Manila";
 
     // constructor
 
     public AppRouteManagementService(
             RouteRepository routeRepository,
-            AuditRecordingService auditService) {
+            AuditRecordingService auditService,
+            RouteVersionRepository versionRepository,
+            RouteScheduleRepository scheduleRepository) {
 
         this.routeRepository = routeRepository;
         this.auditService = auditService;
+        this.versionRepository = versionRepository;
+        this.scheduleRepository = scheduleRepository;
     }
 
     // create route
@@ -146,6 +165,9 @@ public class AppRouteManagementService
         Route saved =
                 routeRepository.save(route);
 
+        versionRepository.save(new RouteVersion(saved,
+                command.effectiveFrom() == null ? serviceDate() : command.effectiveFrom(), null));
+
         auditService.recordAction(
                 "ROUTE_CREATED",
                 "Route",
@@ -172,7 +194,7 @@ public class AppRouteManagementService
             UpdateRouteCommand command) {
 
         Route route =
-                routeRepository.findById(
+                routeRepository.findByIdForUpdate(
                         command.id()
                 )
                 .orElseThrow(() ->
@@ -222,6 +244,30 @@ public class AppRouteManagementService
                     );
                 });
 
+        if (route.isArchived()) {
+            throw new CommandValidationException("Cannot publish a version for an archived route.");
+        }
+
+        LocalDate effectiveFrom = command.effectiveFrom() == null
+                ? serviceDate() : command.effectiveFrom();
+        if (effectiveFrom.isBefore(serviceDate())
+                || (command.effectiveTo() != null && !command.effectiveTo().isAfter(effectiveFrom))) {
+            throw new CommandValidationException("Route version dates must form a positive interval from today or later.");
+        }
+
+        RouteVersion previous = versionRepository.findFirstByRouteIdOrderByEffectiveFromDesc(route.getId())
+                .orElseThrow(() -> new CommandValidationException("Route has no baseline version."));
+        if (!effectiveFrom.isAfter(previous.getEffectiveFrom())) {
+            throw new BusinessConflictException("New route version must begin after the latest version's start date.");
+        }
+        if (previous.getEffectiveTo() == null || effectiveFrom.isBefore(previous.getEffectiveTo())) {
+            if (versionRepository.hasAssignmentsOnOrAfter(previous.getId(), effectiveFrom)) {
+                throw new BusinessConflictException("Existing trips reference this route version on or after the new date.");
+            }
+            previous.closeAt(effectiveFrom);
+            versionRepository.flush();
+        }
+
         route.updateDetails(
                 routeCode,
                 routeName,
@@ -246,7 +292,10 @@ public class AppRouteManagementService
                         )
                         .toList();
 
+        route.replaceStops(List.of());
+        routeRepository.flush();
         route.replaceStops(newStops);
+        versionRepository.save(new RouteVersion(route, effectiveFrom, command.effectiveTo()));
 
         auditService.recordAction(
                 "ROUTE_UPDATED",
@@ -402,6 +451,9 @@ public class AppRouteManagementService
             );
         }
 
+        auditService.recordAction("ROUTE_DELETED", "Route", id,
+                "Permanently deleted route " + route.getRouteCode() + ".");
+
         log.info(
                 "Permanently deleted route '{}'.",
                 route.getRouteCode()
@@ -478,6 +530,117 @@ public class AppRouteManagementService
         return toView(route);
     }
 
+    @Override
+    @PreAuthorize("hasAnyRole('SYSTEM_ADMIN', 'OPERATIONS_STAFF')")
+    public RouteView lockRouteForAssignment(Long id) {
+        Route route = routeRepository.findByIdForUpdate(id)
+                .orElseThrow(() -> new ResourceNotFoundException("Route not found: " + id));
+        return toView(route);
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    @PreAuthorize("hasAnyRole('SYSTEM_ADMIN', 'OPERATIONS_STAFF')")
+    public RouteVersionView getEffectiveVersion(Long routeId, LocalDate date) {
+        if (date == null) {
+            throw new CommandValidationException("Service date is required.");
+        }
+        return versionRepository.findEffective(routeId, date).map(this::toVersionView)
+                .orElseThrow(() -> new CommandValidationException(
+                        "ROUTE_VERSION_NOT_EFFECTIVE: No route version applies on " + date));
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    @PreAuthorize("hasAnyRole('SYSTEM_ADMIN', 'OPERATIONS_STAFF')")
+    public RouteVersionView getVersion(Long versionId) {
+        return versionRepository.findById(versionId).map(this::toVersionView)
+                .orElseThrow(() -> new ResourceNotFoundException("Route version not found: " + versionId));
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    @PreAuthorize("hasAnyRole('SYSTEM_ADMIN', 'OPERATIONS_STAFF')")
+    public List<RouteVersionView> getVersions(Long routeId) {
+        return versionRepository.findByRouteIdOrderByEffectiveFromDesc(routeId).stream()
+                .map(this::toVersionView).toList();
+    }
+
+    private RouteVersionView toVersionView(RouteVersion version) {
+        return new RouteVersionView(version.getId(), version.getRouteId(), version.getRouteCode(),
+                version.getRouteName(), version.getDescription(), version.getEstimatedDurationMinutes(),
+                version.getEffectiveFrom(), version.getEffectiveTo(), version.isLegacySnapshot(),
+                version.getStops().stream().map(stop -> new RouteStopView(stop.getStopName(),
+                        stop.getStopSequence(), stop.getEstimatedArrivalMinutes())).toList());
+    }
+
+    @Override
+    @PreAuthorize("hasAnyRole('SYSTEM_ADMIN', 'OPERATIONS_STAFF')")
+    public RouteScheduleView createSchedule(com.transit.arctransit.route.CreateRouteScheduleCommand command) {
+        if (command == null || command.routeId() == null || command.name() == null
+                || command.name().isBlank() || command.name().trim().length() > 100
+                || command.plannedDeparture() == null || command.effectiveFrom() == null
+                || (command.effectiveTo() != null && !command.effectiveTo().isAfter(command.effectiveFrom()))) {
+            throw new CommandValidationException("Schedule requires a name, departure and positive effective date interval.");
+        }
+        Route route = routeRepository.findByIdForUpdate(command.routeId())
+                .orElseThrow(() -> new ResourceNotFoundException("Route not found: " + command.routeId()));
+        if (route.isArchived()) {
+            throw new CommandValidationException("Cannot configure a schedule for an archived route.");
+        }
+        String name = command.name().trim();
+        if (scheduleRepository.existsByRouteIdAndNameAndEffectiveFrom(route.getId(), name, command.effectiveFrom())) {
+            throw new BusinessConflictException("Schedule name already exists for this route and start date.");
+        }
+        var schedule = scheduleRepository.save(new com.transit.arctransit.route.domain.RouteSchedule(
+                route.getId(), name, command.plannedDeparture(), command.effectiveFrom(), command.effectiveTo()));
+        auditService.recordAction("ROUTE_SCHEDULE_CREATED", "RouteSchedule", schedule.getId(),
+                "Created configured schedule for route " + route.getRouteCode());
+        return toScheduleView(schedule);
+    }
+
+    @Override
+    @PreAuthorize("hasAnyRole('SYSTEM_ADMIN', 'OPERATIONS_STAFF')")
+    public RouteScheduleView changeScheduleActive(Long scheduleId, boolean active) {
+        var schedule = findSchedule(scheduleId);
+        routeRepository.findByIdForUpdate(schedule.getRouteId())
+                .orElseThrow(() -> new ResourceNotFoundException("Route not found: " + schedule.getRouteId()));
+        schedule.changeActive(active);
+        auditService.recordAction(active ? "ROUTE_SCHEDULE_ACTIVATED" : "ROUTE_SCHEDULE_DEACTIVATED",
+                "RouteSchedule", schedule.getId(), "Changed configured schedule availability");
+        return toScheduleView(schedule);
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    @PreAuthorize("hasAnyRole('SYSTEM_ADMIN', 'OPERATIONS_STAFF')")
+    public RouteScheduleView getSchedule(Long id) {
+        return toScheduleView(findSchedule(id));
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    @PreAuthorize("hasAnyRole('SYSTEM_ADMIN', 'OPERATIONS_STAFF')")
+    public List<RouteScheduleView> getSchedules(Long routeId) {
+        return scheduleRepository.findByRouteIdOrderByPlannedDepartureAscNameAsc(routeId).stream()
+                .map(this::toScheduleView).toList();
+    }
+
+    private com.transit.arctransit.route.domain.RouteSchedule findSchedule(Long id) {
+        return scheduleRepository.findById(id)
+                .orElseThrow(() -> new ResourceNotFoundException("Route schedule not found: " + id));
+    }
+
+    private RouteScheduleView toScheduleView(com.transit.arctransit.route.domain.RouteSchedule schedule) {
+        return new RouteScheduleView(schedule.getId(), schedule.getRouteId(), schedule.getName(),
+                schedule.getPlannedDeparture(), schedule.getEffectiveFrom(), schedule.getEffectiveTo(),
+                schedule.isActive());
+    }
+
+    private LocalDate serviceDate() {
+        return LocalDate.now(ZoneId.of(serviceZone));
+    }
+
     // map route to detailed view
 
     private RouteView toView(
@@ -502,7 +665,8 @@ public class AppRouteManagementService
                 route.getDescription(),
                 route.getRouteStatus().name(),
                 route.getEstimatedDurationMinutes(),
-                stopViews
+                stopViews,
+                route.getArchivedAt()
         );
     }
 

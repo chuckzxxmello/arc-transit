@@ -2,14 +2,24 @@ package com.transit.arctransit.fleet.application;
 
 // fleet module
 import com.transit.arctransit.fleet.CreateFleetUnitCommand;
+import com.transit.arctransit.fleet.ChangeVehicleAvailabilityCommand;
+import com.transit.arctransit.fleet.VehicleAvailabilityHistoryView;
+import com.transit.arctransit.fleet.domain.VehicleAvailability;
+import com.transit.arctransit.fleet.domain.VehicleAvailabilityHistory;
+import com.transit.arctransit.fleet.domain.VehicleAvailabilityHistoryRepository;
+import org.springframework.validation.annotation.Validated;
+import org.springframework.security.core.context.SecurityContextHolder;
+import java.time.Instant;
 import com.transit.arctransit.fleet.FleetManagementService;
 import com.transit.arctransit.fleet.FleetUnitQuery;
 import com.transit.arctransit.fleet.FleetUnitSummaryView;
 import com.transit.arctransit.fleet.FleetUnitView;
 import com.transit.arctransit.fleet.UpdateFleetUnitCommand;
+import com.transit.arctransit.fleet.UpdateFleetStateCommand;
 
 // fleet domain
 import com.transit.arctransit.fleet.domain.FleetUnit;
+import com.transit.arctransit.fleet.domain.AdministrativeStatus;
 import com.transit.arctransit.fleet.domain.FleetUnitRepository;
 import com.transit.arctransit.fleet.domain.OperationalStatus;
 import com.transit.arctransit.fleet.domain.VehicleType;
@@ -35,6 +45,7 @@ import org.springframework.transaction.annotation.Transactional;
 
 // app_service for fleet management
 @Service
+@Validated
 @Transactional
 public class AppFleetManagementService
         implements FleetManagementService {
@@ -47,13 +58,16 @@ public class AppFleetManagementService
     private static final String OPERATIONS_STAFF_ROLE = "OPERATIONS_STAFF";
 
     private final FleetUnitRepository fleetUnitRepository;
+    private final VehicleAvailabilityHistoryRepository historyRepository;
     private final AuditRecordingService auditService;
 
     public AppFleetManagementService(FleetUnitRepository fleetUnitRepository,
-            						 AuditRecordingService auditService) {
+            AuditRecordingService auditService,
+            VehicleAvailabilityHistoryRepository historyRepository) {
     	
         this.fleetUnitRepository = fleetUnitRepository;
         this.auditService = auditService;
+        this.historyRepository = historyRepository;
     }
 
     //	create bus fleet unit
@@ -89,6 +103,10 @@ public class AppFleetManagementService
         );
 
         FleetUnit saved = fleetUnitRepository.save(unit);
+        historyRepository.save(new VehicleAvailabilityHistory(
+                saved.getId(), null, saved.getAvailability().name(),
+                saved.getAvailabilityEffectiveAt(), Instant.now(), currentActor(),
+                "REGISTRATION", "Availability is unknown until reported by staff."));
 
         auditService.recordAction(
 				                "FLEET_UNIT_REGISTERED",
@@ -111,7 +129,7 @@ public class AppFleetManagementService
     public FleetUnitView updateUnit(
             UpdateFleetUnitCommand command) {
 
-        FleetUnit unit = fleetUnitRepository.findById(command.id())
+        FleetUnit unit = fleetUnitRepository.findLockedById(command.id())
                         .orElseThrow(() ->
                         new ResourceNotFoundException("Fleet unit not found: "
                                         					  			+ command.id()
@@ -168,14 +186,22 @@ public class AppFleetManagementService
 							          Long id,
 							          String newStatus) {
 
-        FleetUnit unit = fleetUnitRepository.findById(id)
+        FleetUnit unit = fleetUnitRepository.findLockedById(id)
         						.orElseThrow(() ->
                                 new ResourceNotFoundException("Fleet unit not found: " + id
         ));
 
+        if (unit.isArchived()) {
+            throw new CommandValidationException("Restore the archived fleet unit before changing its state.");
+        }
         OperationalStatus status = parseOperationalStatus(newStatus);
 
+        String previous = unit.getAvailability().name();
         unit.changeOperationalStatus(status);
+        historyRepository.save(new VehicleAvailabilityHistory(
+                unit.getId(), previous, unit.getAvailability().name(),
+                unit.getAvailabilityEffectiveAt(), Instant.now(), currentActor(),
+                "LEGACY_STATUS_CHANGE", "Recorded legacy status " + status.name()));
 
         auditService.recordAction(
 				                  "FLEET_UNIT_STATUS_CHANGED",
@@ -194,12 +220,60 @@ public class AppFleetManagementService
         return toView(unit);
     }
 
+    @Override
+    @PreAuthorize("hasAnyRole('SYSTEM_ADMIN', 'OPERATIONS_STAFF')")
+    public FleetUnitView changeAdministrativeStatus(Long id, String value) {
+        FleetUnit unit = findLocked(id);
+        if (unit.isArchived()) {
+            throw new CommandValidationException("Restore the archived fleet unit before changing its administrative state.");
+        }
+        AdministrativeStatus status;
+        try {
+            status = AdministrativeStatus.valueOf(value.trim().toUpperCase(Locale.ROOT));
+        } catch (IllegalArgumentException | NullPointerException exception) {
+            throw new CommandValidationException("Administrative status must be ACTIVE or INACTIVE.");
+        }
+        unit.changeAdministrativeStatus(status);
+        auditService.recordAction("FLEET_ADMINISTRATIVE_STATUS_CHANGED", "FleetUnit",
+                id, "Administrative status changed to " + status.name());
+        return toView(unit);
+    }
+
+    @Override
+    @PreAuthorize("hasAnyRole('SYSTEM_ADMIN', 'OPERATIONS_STAFF')")
+    public FleetUnitView updateState(UpdateFleetStateCommand command) {
+        FleetUnit unit = findLocked(command.fleetUnitId());
+        if (unit.isArchived()) {
+            throw new CommandValidationException("Restore the archived bus before changing its state.");
+        }
+        AdministrativeStatus administrative;
+        VehicleAvailability availability;
+        try {
+            administrative = AdministrativeStatus.valueOf(command.administrativeStatus().trim().toUpperCase(Locale.ROOT));
+            availability = VehicleAvailability.valueOf(command.availability().trim().toUpperCase(Locale.ROOT));
+        } catch (IllegalArgumentException | NullPointerException exception) {
+            throw new CommandValidationException("Select a valid administrative status and reported availability.");
+        }
+        boolean availabilityChanged = availability != unit.getAvailability();
+        if (availabilityChanged && (command.reason() == null || command.reason().isBlank())) {
+            throw new CommandValidationException("A reason is required when reported availability changes.");
+        }
+        if (administrative != unit.getAdministrativeStatus()) {
+            changeAdministrativeStatus(unit.getId(), administrative.name());
+        }
+        if (availabilityChanged) {
+            changeAvailability(new ChangeVehicleAvailabilityCommand(unit.getId(), availability.name(),
+                    Instant.now(), command.reason()));
+        }
+        return toView(unit);
+    }
+
     // archive teh bus fleet unit
     @Override
     @PreAuthorize("hasRole('SYSTEM_ADMIN')")
     public void archiveUnit(Long id) {
 
-        FleetUnit unit = fleetUnitRepository.findById(id)
+        FleetUnit unit = fleetUnitRepository.findLockedById(id)
                         .orElseThrow(() ->
                                 new ResourceNotFoundException("Fleet unit not found: " + id
         ));
@@ -224,7 +298,7 @@ public class AppFleetManagementService
     @PreAuthorize("hasRole('SYSTEM_ADMIN')")
     public void unarchiveUnit(Long id) {
 
-        FleetUnit unit = fleetUnitRepository.findById(id)
+        FleetUnit unit = fleetUnitRepository.findLockedById(id)
                         .orElseThrow(() -> new ResourceNotFoundException(
 							                                     "Fleet unit not found: " + id
         ));
@@ -248,30 +322,26 @@ public class AppFleetManagementService
     @Override
     @PreAuthorize("hasRole('SYSTEM_ADMIN')")
     public void hardDeleteUnit(Long id) {
-
-        FleetUnit unit = fleetUnitRepository.findById(id)
-                        .orElseThrow(() ->
-                                new ResourceNotFoundException("Fleet unit not found: "
-                                                									+ id
-        ));
-
+        FleetUnit unit = fleetUnitRepository.findLockedById(id)
+                .orElseThrow(() -> new ResourceNotFoundException("Fleet unit not found: " + id));
+        if (!unit.isArchived()) {
+            throw new BusinessConflictException("Archive the bus before permanently deleting it.");
+        }
+        var blockers = fleetUnitRepository.findPermanentDeletionBlockers(id);
+        if (!blockers.isEmpty()) {
+            throw new BusinessConflictException("Cannot permanently delete this bus because it has "
+                    + String.join(", ", blockers) + ". Keep it archived to preserve those records.");
+        }
         try {
             fleetUnitRepository.delete(unit);
             fleetUnitRepository.flush();
-
         } catch (DataIntegrityViolationException exception) {
-
-            throw new BusinessConflictException("Cannot permanently delete fleet unit "
-								                            + id
-								                            + " because it is referenced by "
-								                            + "other records."
-            );
+            throw new BusinessConflictException("The bus has linked records and could not be deleted. Refresh and try again.");
         }
-
-        log.info(
-                "Permanently deleted fleet unit '{}'.",
-                unit.getUnitNumber()
-        );
+        auditService.recordAction("FLEET_UNIT_DELETED", "FleetUnit", id,
+                "Permanently deleted unit " + unit.getUnitNumber() + " (plate " + unit.getPlateNumber()
+                        + "). Availability history retained under fleet ID " + id + ".");
+        log.info("Permanently deleted fleet unit '{}'.", unit.getUnitNumber());
     }
 
     // search for active bus fleet units
@@ -329,6 +399,68 @@ public class AppFleetManagementService
         return toView(unit);
     }
 
+    @Override
+    @PreAuthorize("hasAnyRole('SYSTEM_ADMIN', 'OPERATIONS_STAFF')")
+    public FleetUnitView lockUnitForAssignment(Long id) {
+        return toView(findLocked(id));
+    }
+
+    @Override
+    @PreAuthorize("hasAnyRole('SYSTEM_ADMIN', 'OPERATIONS_STAFF')")
+    public FleetUnitView changeAvailability(ChangeVehicleAvailabilityCommand command) {
+        FleetUnit unit = findLocked(command.fleetUnitId());
+        if (unit.isArchived()) {
+            throw new CommandValidationException("Archived fleet units cannot receive availability changes.");
+        }
+        VehicleAvailability availability;
+        try {
+            availability = VehicleAvailability.valueOf(command.availability().trim().toUpperCase(Locale.ROOT));
+        } catch (IllegalArgumentException | NullPointerException exception) {
+            throw new CommandValidationException("Invalid availability.");
+        }
+        Instant recordedAt = Instant.now();
+        Instant effectiveAt = command.effectiveAt();
+        if (effectiveAt == null || effectiveAt.isAfter(recordedAt)) {
+            throw new CommandValidationException("Effective time is required and cannot be in the future.");
+        }
+        if (effectiveAt.isBefore(unit.getAvailabilityEffectiveAt())) {
+            throw new CommandValidationException("Effective time precedes the current availability report.");
+        }
+        String reason = command.reason();
+        if (reason == null || reason.isBlank() || reason.length() > 500) {
+            throw new CommandValidationException("A reason of at most 500 characters is required.");
+        }
+        String previous = unit.getAvailability().name();
+        unit.changeAvailability(availability, effectiveAt);
+        historyRepository.save(new VehicleAvailabilityHistory(
+                unit.getId(), previous, availability.name(), effectiveAt, recordedAt,
+                currentActor(), "STAFF_ENTRY", reason.trim()));
+        auditService.recordAction("FLEET_AVAILABILITY_CHANGED", "FleetUnit",
+                unit.getId(), "Recorded availability " + availability.name());
+        return toView(unit);
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    @PreAuthorize("hasAnyRole('SYSTEM_ADMIN', 'OPERATIONS_STAFF')")
+    public Page<VehicleAvailabilityHistoryView> availabilityHistory(Long id, Pageable pageable) {
+        return historyRepository.findByFleetUnitIdOrderByRecordedAtDescIdDesc(id, pageable)
+                .map(event -> new VehicleAvailabilityHistoryView(
+                        event.getId(), event.getPreviousAvailability(), event.getAvailability(),
+                        event.getEffectiveAt(), event.getRecordedAt(), event.getRecordedBy(),
+                        event.getSourceType(), event.getVerificationStatus(), event.getReason()));
+    }
+
+    private FleetUnit findLocked(Long id) {
+        return fleetUnitRepository.findLockedById(id)
+                .orElseThrow(() -> new ResourceNotFoundException("FleetUnit not found: " + id));
+    }
+
+    private static String currentActor() {
+        var authentication = SecurityContextHolder.getContext().getAuthentication();
+        return authentication == null ? "SYSTEM" : authentication.getName();
+    }
+
     // fleet unit view
     private FleetUnitView toView(
             FleetUnit unit) {
@@ -339,7 +471,10 @@ public class AppFleetManagementService
                 unit.getPlateNumber(),
                 unit.getVehicleType().name(),
                 unit.getCapacity(),
-                unit.getOperationalStatus().name()
+                unit.getOperationalStatus().name(),
+                unit.isArchived() ? "ARCHIVED" : unit.getAdministrativeStatus().name(),
+                unit.getAvailability().name(),
+                unit.getArchivedAt()
         );
     }
 
@@ -351,7 +486,10 @@ public class AppFleetManagementService
                 unit.getUnitNumber(),
                 unit.getPlateNumber(),
                 unit.getCapacity(),
-                unit.getOperationalStatus().name()
+                unit.getOperationalStatus().name(),
+                unit.isArchived() ? "ARCHIVED" : unit.getAdministrativeStatus().name(),
+                unit.getAvailability().name(),
+                unit.getArchivedAt()
         );
     }
 

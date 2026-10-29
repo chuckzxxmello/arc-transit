@@ -3,12 +3,15 @@ package com.transit.arctransit.auth.application;
 // auth module
 import com.transit.arctransit.auth.ChangeAccountStatusCommand;
 import com.transit.arctransit.auth.CreateUserCommand;
+import com.transit.arctransit.auth.UpdateUserCommand;
+import com.transit.arctransit.auth.PasswordPolicy;
 import com.transit.arctransit.auth.ReplaceUserRolesCommand;
 import com.transit.arctransit.auth.UserAdministrationService;
 import com.transit.arctransit.auth.CurrentUserView;
 import com.transit.arctransit.auth.UserSummaryView;
 import com.transit.arctransit.auth.UserView;
 import com.transit.arctransit.auth.UserQuery;
+import com.transit.arctransit.audit.AuditRecordingService;
 
 // auth domain
 import com.transit.arctransit.auth.domain.AccountStatus;
@@ -41,6 +44,7 @@ import org.springframework.security.crypto.password.PasswordEncoder;
 
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.validation.annotation.Validated;
 
 
 // java
@@ -50,6 +54,7 @@ import java.util.stream.Collectors;
 
 @Service
 @Transactional
+@Validated
 public class AppUserAdministrationService implements UserAdministrationService {
 
 	// constants
@@ -68,16 +73,19 @@ public class AppUserAdministrationService implements UserAdministrationService {
     private final AppUserRepository userRepository;
     private final UserRoleRepository roleRepository;
     private final PasswordEncoder passwordEncoder;
+    private final AuditRecordingService auditService;
     
     private final String bootstrapAdminUsername;
 
     public AppUserAdministrationService(AppUserRepository userRepository,
     									UserRoleRepository roleRepository,
     									PasswordEncoder passwordEncoder,
-    									@Value("${arc.security.admin.username}") String bootstrapAdminUsername) {
+                                        @Value("${arc.security.admin.username}") String bootstrapAdminUsername,
+                                        AuditRecordingService auditService) {
         this.userRepository = userRepository;
         this.roleRepository = roleRepository;
         this.passwordEncoder = passwordEncoder;
+        this.auditService = auditService;
         this.bootstrapAdminUsername = 
         						normalizeUsername(bootstrapAdminUsername);
     }
@@ -90,7 +98,8 @@ public class AppUserAdministrationService implements UserAdministrationService {
     	Authentication authentication = requireAuthenticatedUser();
     	
     	AppUser user = userRepository
-				    			.findByUsername(authentication.getName())
+                .findByUsername(normalizeUsername(authentication.getName()))
+                                .or(() -> userRepository.findByReservedUsername(normalizeUsername(authentication.getName())))
 				    			.orElseThrow(() -> 
 				    					new ResourceNotFoundException(
 				    											"Current user not found."
@@ -113,16 +122,20 @@ public class AppUserAdministrationService implements UserAdministrationService {
     @Override
     @PreAuthorize("hasRole('SYSTEM_ADMIN')")
     public UserView createUser(CreateUserCommand command) {
+        validatePassword(command.password());
     	
     	String normalizedUsername = normalizeUsername(command.username());
     	
 	    	if (userRepository
 			    		.findByUsername(normalizedUsername)
-			    		.isPresent()) {
+                .isPresent() || userRepository.isUsernameReserved(normalizedUsername)) {
 	    			
 	    			throw new BusinessConflictException("Username already taken.");
 	    	}
 	    String normalizedEmail = normalizeOptionalEmail(command.email());
+        if (normalizedEmail != null && userRepository.existsByEmailIgnoreCase(normalizedEmail)) {
+            throw new BusinessConflictException("Email address is already in use by another account.");
+        }
     	
 	    Set<String> normalizedRoles = normalizeRoles(command.roles());
 	    
@@ -133,7 +146,11 @@ public class AppUserAdministrationService implements UserAdministrationService {
 					    		normalizedEmail
 	    );
 	    
-	    userRepository.saveAndFlush(newUser);
+        try {
+            userRepository.saveAndFlush(newUser);
+        } catch (org.springframework.dao.DataIntegrityViolationException exception) {
+            throw accountWriteFailure(exception);
+        }
 	    
 	    Long currentUserId = getCurrentUserId();
 	    
@@ -146,11 +163,65 @@ public class AppUserAdministrationService implements UserAdministrationService {
 										    			)
 								    	);
 	    }
+        auditService.recordAction("USER_CREATED", "AppUser", newUser.getId(),
+                "Created account " + normalizedUsername + ".");
 	    log.info("Created user account '{}'.",
 	    									normalizedUsername);
 	    return	toUserView(newUser);
     }
     
+    @Override
+    @Transactional(readOnly = true)
+    @PreAuthorize("hasRole('SYSTEM_ADMIN')")
+    public UserView getUser(String username) {
+        return toUserView(userRepository.findByUsername(normalizeUsername(username))
+                .orElseThrow(() -> new ResourceNotFoundException("User not found.")));
+    }
+
+    @Override
+    @PreAuthorize("hasRole('SYSTEM_ADMIN')")
+    public UserView updateUser(UpdateUserCommand command) {
+        AppUser user = userRepository.findById(command.id())
+                .orElseThrow(() -> new ResourceNotFoundException("User not found."));
+        if (user.isArchived()) {
+            throw new BusinessConflictException("Archived accounts cannot be edited.");
+        }
+        if (!java.util.Objects.equals(user.getVersion(), command.version())) {
+            throw new BusinessConflictException("This account was changed by another user. Reopen the editor and try again.");
+        }
+        String username = normalizeUsername(command.username());
+        if (userRepository.isUsernameReservedByOtherUser(username, user.getId())) {
+            throw new BusinessConflictException("Username is already taken or reserved by another account.");
+        }
+        String email = normalizeOptionalEmail(command.email());
+        if (email != null && userRepository.existsByEmailIgnoreCaseAndIdNot(email, user.getId())) {
+            throw new BusinessConflictException("Email address is already in use by another account.");
+        }
+        Set<String> roles = normalizeRoles(command.roles());
+        Set<String> previousRoles = roleRepository.findByUserId(user.getId()).stream()
+                .map(UserRole::getRoleCode).collect(Collectors.toUnmodifiableSet());
+        if (!roles.contains(SYSTEM_ADMIN_ROLE)) {
+            protectLastActiveAdministrator(user);
+        }
+        Long actorId = getCurrentUserId();
+        String previousUsername = user.getUsername();
+        user.updateProfile(username, command.displayName().trim(), email);
+        try {
+            userRepository.saveAndFlush(user);
+        } catch (org.springframework.dao.DataIntegrityViolationException exception) {
+            throw accountWriteFailure(exception);
+        }
+        if (!roles.equals(previousRoles)) {
+            replaceRoleAssignments(user, roles, actorId);
+            auditService.recordAction("USER_ROLES_CHANGED", "AppUser", user.getId(),
+                    "Roles changed from " + previousRoles + " to " + roles + ".");
+        }
+        auditService.recordAction("USER_UPDATED", "AppUser", user.getId(),
+                "Account details updated; username " + previousUsername + " -> " + username
+                        + "; display name and optional email saved.");
+        return toUserView(user);
+    }
+
     // change account status
     @Override
     @PreAuthorize("hasRole('SYSTEM_ADMIN')")
@@ -166,7 +237,12 @@ public class AppUserAdministrationService implements UserAdministrationService {
     	);
     	
     	AccountStatus newStatus = parseAccountStatus(command.newStatus());
+        if (newStatus != AccountStatus.ACTIVE) {
+            protectLastActiveAdministrator(user);
+        }
     	user.changeAccountStatus(newStatus);
+        auditService.recordAction("USER_STATUS_CHANGED", "AppUser", user.getId(),
+                "Account status changed to " + newStatus + ".");
     	
     	log.info("Changed account status for '{}' to '{}'.", 
     												normalizedUsername,
@@ -189,20 +265,16 @@ public class AppUserAdministrationService implements UserAdministrationService {
     	);
     	
     	Set<String> normalizedRoles = normalizeRoles(command.roles());
+        if (!normalizedRoles.contains(SYSTEM_ADMIN_ROLE)) {
+            protectLastActiveAdministrator(user);
+        }
     	
-    	roleRepository.deleteByUserId(user.getId());
-    	
-    	Long currentUserId = getCurrentUserId();
-    	
-    	for (String role : normalizedRoles) {
-							    		roleRepository.save(
-									    				new UserRole(
-									    						user.getId(),
-									    						role,
-									    						currentUserId
-									    				)
-							    		);
-    	}
+        Long currentUserId = getCurrentUserId();
+        user.updateProfile(user.getUsername(), user.getDisplayName(), user.getEmail());
+        userRepository.saveAndFlush(user);
+        replaceRoleAssignments(user, normalizedRoles, currentUserId);
+        auditService.recordAction("USER_ROLES_CHANGED", "AppUser", user.getId(),
+                "Roles changed to " + normalizedRoles + ".");
     	log.info("Replace roles for user '{}'.",
     										normalizedUsername);
     	return toUserView(user);
@@ -214,6 +286,7 @@ public class AppUserAdministrationService implements UserAdministrationService {
     public void resetPassword(String username, String newPassword) {
 
         String normalizedUsername = normalizeUsername(username);
+        validatePassword(newPassword);
 
         AppUser user = userRepository
 				                .findByUsername(normalizedUsername)
@@ -222,15 +295,13 @@ public class AppUserAdministrationService implements UserAdministrationService {
 									                									+ normalizedUsername)
         );
 
-        if (newPassword == null || newPassword.isBlank()) {
-            throw new CommandValidationException(
-            		"Invalid Password. Password cannot be blank."
-            );
-        }
+
         
         user.changePassword(
                 passwordEncoder.encode(newPassword)
         );
+        auditService.recordAction("USER_PASSWORD_RESET", "AppUser", user.getId(),
+                "Password reset.");
         log.info("Password reset for user '{}'.", 
         									normalizedUsername
         );
@@ -259,22 +330,16 @@ public class AppUserAdministrationService implements UserAdministrationService {
 
         if (isTargetAdmin) {
 
-            long totalAdmins = roleRepository.countByRoleCode(SYSTEM_ADMIN_ROLE);
-
-            // if there is only one SYSTEM_ADMIN, it cannot be removed.
-            if (totalAdmins <= 1) {
-                throw new BusinessConflictException(
-                        "Cannot delete the only remaining "
-                        					+ "SYSTEM_ADMIN account."
-                );
-            }
+            protectLastActiveAdministrator(user);
 
             Authentication authentication = requireAuthenticatedUser();
 
             String currentUsername = normalizeUsername(authentication.getName());
 
             // only admins can delete other admin users
-            if (!bootstrapAdminUsername.equals(currentUsername)) {
+            if (!bootstrapAdminUsername.equals(currentUsername)
+                    && !userRepository.findByReservedUsername(bootstrapAdminUsername)
+                            .map(defaultAdmin -> defaultAdmin.getId().equals(getCurrentUserId())).orElse(false)) {
                 throw new BusinessConflictException(
                         "Only the configured Default Admin is "
 						                        	+ "authorized to delete other "
@@ -282,13 +347,45 @@ public class AppUserAdministrationService implements UserAdministrationService {
                 );
             }
         }
-        roleRepository.deleteByUserId(user.getId());
-        userRepository.delete(user);
+        user.archive();
+        auditService.recordAction("USER_ARCHIVED", "AppUser", user.getId(),
+                "Account archived and disabled.");
         
-        log.info("Deleted user account '{}'.",
+        log.info("Archived user account '{}'.",
         								normalizedUsername);
     }
     
+    @Override
+    @PreAuthorize("hasRole('SYSTEM_ADMIN')")
+    public void hardDeleteUser(String username) {
+        AppUser user = userRepository.findLockedByUsername(normalizeUsername(username))
+                .orElseThrow(() -> new ResourceNotFoundException("User not found: " + username));
+        if (user.getArchivedAt() == null) {
+            throw new BusinessConflictException("Archive the account before permanently deleting it.");
+        }
+        if (user.getId().equals(getCurrentUserId())
+                || userRepository.findByReservedUsername(bootstrapAdminUsername)
+                        .map(bootstrap -> bootstrap.getId().equals(user.getId())).orElse(false)) {
+            throw new BusinessConflictException("The current account and configured Default Admin cannot be permanently deleted.");
+        }
+        if (roleRepository.existsByUserIdAndRoleCode(user.getId(), SYSTEM_ADMIN_ROLE)
+                && !userRepository.findByReservedUsername(bootstrapAdminUsername)
+                        .map(bootstrap -> bootstrap.getId().equals(getCurrentUserId())).orElse(false)) {
+            throw new BusinessConflictException("Only the configured Default Admin can permanently delete administrator accounts.");
+        }
+        if (roleRepository.existsByAssignedByUserIdAndUserIdNot(user.getId(), user.getId())) {
+            throw new BusinessConflictException("This account granted roles to other accounts. Keep it archived to preserve those references.");
+        }
+        user.getUserRoles().clear();
+        roleRepository.deleteByUserId(user.getId());
+        roleRepository.flush();
+        userRepository.delete(user);
+        userRepository.flush();
+        auditService.recordAction("USER_DELETED", "AppUser", user.getId(),
+                "Permanently deleted archived account " + user.getUsername() + " (" + user.getDisplayName()
+                        + "). Historical actor names and username reservations are retained under user ID " + user.getId() + ".");
+    }
+
     // view mapping
     private UserView toUserView(AppUser user) {
 
@@ -303,7 +400,9 @@ public class AppUserAdministrationService implements UserAdministrationService {
 		                user.getDisplayName(),
 		                user.getEmail(),
 		                user.getAccountStatus().name(),
-		                roles
+		                roles,
+                        user.getId(),
+                        user.getVersion()
         );
     }
 
@@ -324,10 +423,63 @@ public class AppUserAdministrationService implements UserAdministrationService {
 						            UserQuery query,
 						            Pageable pageable) {
 
-        // ps. temporary implementation only
+        String keyword = query == null || query.searchKeyword() == null
+                ? "" : query.searchKeyword().trim();
         return userRepository
-		                .findAll(pageable)
+                .searchUnarchivedUsers(keyword, pageable)
 		                .map(this::toUserSummaryView);
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    @PreAuthorize("hasRole('SYSTEM_ADMIN')")
+    public Page<UserSummaryView> searchArchivedUsers(UserQuery query, Pageable pageable) {
+        String keyword = query == null || query.searchKeyword() == null
+                ? "" : query.searchKeyword().trim();
+        return userRepository.searchArchivedUsers(keyword, pageable).map(this::toUserSummaryView);
+    }
+
+    private void protectLastActiveAdministrator(AppUser user) {
+        if (user.isActive()
+                && roleRepository.existsByUserIdAndRoleCode(user.getId(), SYSTEM_ADMIN_ROLE)
+                && userRepository.findActiveAdministratorsForUpdate().size() <= 1) {
+            throw new BusinessConflictException(
+                    "Cannot remove or disable the only active SYSTEM_ADMIN account.");
+        }
+    }
+
+    private void replaceRoleAssignments(AppUser user, Set<String> roles, Long actorId) {
+        // The eager read-only role collection must not retain entities deleted by the role repository.
+        user.getUserRoles().clear();
+        roleRepository.deleteByUserId(user.getId());
+        roleRepository.flush();
+        for (String role : roles) {
+            UserRole assignment = roleRepository.save(new UserRole(user.getId(), role, actorId));
+            user.getUserRoles().add(assignment);
+        }
+    }
+
+    private static RuntimeException accountWriteFailure(org.springframework.dao.DataIntegrityViolationException exception) {
+        Throwable cause = exception;
+        while (cause != null) {
+            if (cause instanceof org.hibernate.exception.ConstraintViolationException constraint) {
+                if ("ux_app_users_email_ci".equals(constraint.getConstraintName())) {
+                    return new BusinessConflictException("Email address is already in use by another account.");
+                }
+                if ("ux_app_users_username".equals(constraint.getConstraintName())
+                        || "username_reservations_pkey".equals(constraint.getConstraintName())) {
+                    return new BusinessConflictException("Username is already taken or reserved by another account.");
+                }
+            }
+            cause = cause.getCause();
+        }
+        return exception;
+    }
+
+    private static void validatePassword(String password) {
+        if (!PasswordPolicy.isValid(password)) {
+            throw new CommandValidationException(PasswordPolicy.validationMessage(password));
+        }
     }
     
     // helper methods
@@ -353,6 +505,7 @@ public class AppUserAdministrationService implements UserAdministrationService {
                 .findByUsername(
                         normalizeUsername(authentication.getName())
                 )
+                .or(() -> userRepository.findByReservedUsername(normalizeUsername(authentication.getName())))
                 .map(AppUser::getId)
                 .orElseThrow(() ->
                         new ResourceNotFoundException(

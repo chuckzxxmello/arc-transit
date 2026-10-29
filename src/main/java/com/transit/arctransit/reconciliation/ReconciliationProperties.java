@@ -30,5 +30,9 @@ public record ReconciliationProperties(
             incidentResolutionDeadline =
                     Duration.ofHours(24);
         }
+        if (dispatchStalenessThreshold.isNegative() || dispatchStalenessThreshold.isZero()
+                || incidentResolutionDeadline.isNegative() || incidentResolutionDeadline.isZero()) {
+            throw new IllegalArgumentException("Reconciliation thresholds must be positive.");
+        }
     }
 }

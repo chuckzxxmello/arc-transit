@@ -7,10 +7,17 @@ import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
 import java.util.Optional;
+import jakarta.persistence.LockModeType;
+import org.springframework.data.jpa.repository.Lock;
 
 // data access for route records
 public interface RouteRepository
         extends JpaRepository<Route, Long> {
+
+    @Lock(LockModeType.PESSIMISTIC_WRITE)
+    @Query("SELECT route FROM Route route WHERE route.id = :id")
+    Optional<Route> findByIdForUpdate(@Param("id") Long id);
+
 
     // lookup by route code
     Optional<Route> findByRouteCode(

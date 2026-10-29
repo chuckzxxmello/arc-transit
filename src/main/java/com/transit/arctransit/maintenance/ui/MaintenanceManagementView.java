@@ -1,9 +1,17 @@
 package com.transit.arctransit.maintenance.ui;
 
+import com.transit.arctransit.common.ui.RefreshButton;
+import com.transit.arctransit.common.ui.Dialogs;
 // maintenance module
+import com.transit.arctransit.common.ui.FormInputs;
+import com.transit.arctransit.common.ui.RecordPicker;
+import com.transit.arctransit.fleet.FleetManagementService;
+import com.transit.arctransit.fleet.FleetUnitQuery;
+
 import com.transit.arctransit.maintenance.CreateMaintenanceCommand;
 import com.transit.arctransit.maintenance.MaintenanceRecordView;
 import com.transit.arctransit.maintenance.MaintenanceService;
+import com.transit.arctransit.maintenance.MaintenanceHistoryView;
 
 // common UI
 import com.transit.arctransit.common.ui.MainLayout;
@@ -15,6 +23,7 @@ import com.vaadin.flow.component.combobox.ComboBox;
 import com.vaadin.flow.component.datepicker.DatePicker;
 import com.vaadin.flow.component.dialog.Dialog;
 import com.vaadin.flow.component.grid.Grid;
+import com.transit.arctransit.common.ui.DataGrids;
 import com.vaadin.flow.component.html.H2;
 import com.vaadin.flow.component.notification.Notification;
 import com.vaadin.flow.component.notification.NotificationVariant;
@@ -30,7 +39,6 @@ import com.vaadin.flow.router.Route;
 import jakarta.annotation.security.RolesAllowed;
 
 // spring
-import org.springframework.data.domain.PageRequest;
 
 // maintenance management view
 
@@ -45,17 +53,20 @@ public class MaintenanceManagementView
 
     // dependencies
     private final MaintenanceService maintenanceService;
+    private final FleetManagementService fleetService;
 
     // grid
     private final Grid<MaintenanceRecordView> grid =
-            new Grid<>();
+            DataGrids.create();
 
     // constructor
     public MaintenanceManagementView(
-            MaintenanceService maintenanceService) {
+            MaintenanceService maintenanceService,
+            FleetManagementService fleetService) {
 
         this.maintenanceService =
                 maintenanceService;
+        this.fleetService = fleetService;
 
         configureView();
 
@@ -103,8 +114,7 @@ public class MaintenanceManagementView
         HorizontalLayout toolbar =
                 new HorizontalLayout(
                         title,
-                        requestButton
-                );
+                        new HorizontalLayout(requestButton, new RefreshButton(this::refreshGrid)));
 
         toolbar.setWidthFull();
 
@@ -123,6 +133,8 @@ public class MaintenanceManagementView
     private void configureGrid() {
 
         grid.setSizeFull();
+        grid.addItemDoubleClickListener(event -> openDetails(event.getItem()));
+        grid.setItemsPageable(pageable -> maintenanceService.searchRecords(pageable).getContent());
 
         grid.addColumn(
                 MaintenanceRecordView::id
@@ -263,14 +275,31 @@ public class MaintenanceManagementView
             }
         }
 
+        actions.add(new Button("History", event -> openHistory(record.id())));
         return actions;
+    }
+
+    private void openHistory(Long recordId) {
+        Dialog dialog = Dialogs.create();
+        dialog.setHeaderTitle("Maintenance History");
+        dialog.setWidth("900px");
+        Grid<MaintenanceHistoryView> history = DataGrids.create();
+        history.addColumn(MaintenanceHistoryView::previousStatus).setHeader("Previous");
+        history.addColumn(MaintenanceHistoryView::status).setHeader("Status");
+        history.addColumn(MaintenanceHistoryView::recordedAt).setHeader("Recorded Time");
+        history.addColumn(MaintenanceHistoryView::recordedBy).setHeader("Recorded By");
+        history.addColumn(MaintenanceHistoryView::reason).setHeader("Reason");
+        history.setItemsPageable(pageable -> maintenanceService.history(recordId, pageable).getContent());
+        dialog.add(history);
+        dialog.getFooter().add(new Button("Close", event -> dialog.close()));
+        dialog.open();
     }
 
     // request maintenance
     private void openRequestDialog() {
 
         Dialog dialog =
-                new Dialog();
+                Dialogs.create();
 
         dialog.setHeaderTitle(
                 "Request Maintenance"
@@ -278,18 +307,18 @@ public class MaintenanceManagementView
 
         dialog.setWidth("500px");
 
-        IntegerField fleetUnitId =
-                new IntegerField(
-                        "Fleet Unit ID"
-                );
-
-        fleetUnitId.setWidthFull();
-        fleetUnitId.setMin(1);
+        ComboBox<RecordPicker.Option> bus = RecordPicker.create("Bus",
+                (filter, pageable) -> fleetService.searchUnits(new FleetUnitQuery(filter, null), pageable)
+                        .map(unit -> new RecordPicker.Option(unit.id(), unit.unitNumber() + " (" + unit.plateNumber() + ")"))
+                        .getContent());
+        bus.setPlaceholder("Type a unit number or plate and select a bus");
+        bus.setRequiredIndicatorVisible(true);
 
         ComboBox<String> maintenanceType =
-                new ComboBox<>(
+                FormInputs.choice(new ComboBox<>(
                         "Maintenance Type"
-                );
+                ));
+        maintenanceType.setRequiredIndicatorVisible(true);
 
         maintenanceType.setItems(
                 "SCHEDULED",
@@ -304,9 +333,10 @@ public class MaintenanceManagementView
         maintenanceType.setWidthFull();
 
         TextArea description =
-                new TextArea(
+                FormInputs.notes(new TextArea(
                         "Description"
-                );
+                ));
+        description.setRequiredIndicatorVisible(true);
 
         description.setWidthFull();
 
@@ -319,7 +349,7 @@ public class MaintenanceManagementView
 
         VerticalLayout form =
                 new VerticalLayout(
-                        fleetUnitId,
+                        bus,
                         maintenanceType,
                         description,
                         scheduledDate
@@ -331,11 +361,15 @@ public class MaintenanceManagementView
                 new Button(
                         "Request",
                         event -> {
+                            if (!FormInputs.validate(dialog)) {
+                                return;
+                            }
 
-                            if (fleetUnitId.getValue() == null) {
+
+                            if (bus.getValue() == null) {
 
                                 showError(
-                                        "Fleet unit ID is required."
+                                        "Select a bus."
                                 );
 
                                 return;
@@ -357,9 +391,7 @@ public class MaintenanceManagementView
                                 maintenanceService
                                         .requestMaintenance(
                                                 new CreateMaintenanceCommand(
-                                                        fleetUnitId
-                                                                .getValue()
-                                                                .longValue(),
+                                                        bus.getValue().id(),
                                                         maintenanceType.getValue(),
                                                         description.getValue(),
                                                         scheduledDate.getValue()
@@ -377,7 +409,7 @@ public class MaintenanceManagementView
                             } catch (RuntimeException exception) {
 
                                 showError(
-                                        exception.getMessage()
+                                        com.transit.arctransit.common.ui.ApplicationErrors.message(exception)
                                 );
                             }
                         }
@@ -451,7 +483,7 @@ public class MaintenanceManagementView
             Long recordId) {
 
         Dialog dialog =
-                new Dialog();
+                Dialogs.create();
 
         dialog.setHeaderTitle(
                 "Complete Maintenance"
@@ -460,9 +492,10 @@ public class MaintenanceManagementView
         dialog.setWidth("400px");
 
         TextArea technicianNotes =
-                new TextArea(
+                FormInputs.notes(new TextArea(
                         "Technician Notes"
-                );
+                ));
+        technicianNotes.setRequiredIndicatorVisible(true);
 
         technicianNotes.setWidthFull();
 
@@ -474,6 +507,10 @@ public class MaintenanceManagementView
                 new Button(
                         "Complete",
                         event -> {
+                            if (!FormInputs.validate(dialog)) {
+                                return;
+                            }
+
 
                             if (technicianNotes
                                     .getValue()
@@ -505,7 +542,7 @@ public class MaintenanceManagementView
                             } catch (RuntimeException exception) {
 
                                 showError(
-                                        exception.getMessage()
+                                        com.transit.arctransit.common.ui.ApplicationErrors.message(exception)
                                 );
                             }
                         }
@@ -553,24 +590,14 @@ public class MaintenanceManagementView
         } catch (RuntimeException exception) {
 
             showError(
-                    exception.getMessage()
+                    com.transit.arctransit.common.ui.ApplicationErrors.message(exception)
             );
         }
     }
 
     // refresh
     private void refreshGrid() {
-
-        grid.setItems(
-                maintenanceService
-                        .searchRecords(
-                                PageRequest.of(
-                                        0,
-                                        100
-                                )
-                        )
-                        .getContent()
-        );
+        grid.getDataProvider().refreshAll();
     }
 
     // success notification
@@ -602,5 +629,20 @@ public class MaintenanceManagementView
                 .addThemeVariants(
                         NotificationVariant.LUMO_ERROR
                 );
+    }
+
+    private void openDetails(MaintenanceRecordView record) {
+        Dialog dialog = Dialogs.details("Maintenance Details");
+        Dialogs.field(dialog, "Record ID", record.id());
+        Dialogs.field(dialog, "Bus record ID", record.fleetUnitId());
+        Dialogs.field(dialog, "Maintenance type", record.maintenanceType());
+        Dialogs.field(dialog, "Status", record.maintenanceStatus());
+        Dialogs.field(dialog, "Description", record.description());
+        Dialogs.field(dialog, "Scheduled date", record.scheduledDate());
+        Dialogs.field(dialog, "Started at", record.startedAt());
+        Dialogs.field(dialog, "Completed at", record.completedAt());
+        Dialogs.field(dialog, "Technician notes", record.technicianNotes());
+        Dialogs.field(dialog, "Created at", record.createdAt());
+        dialog.open();
     }
 }

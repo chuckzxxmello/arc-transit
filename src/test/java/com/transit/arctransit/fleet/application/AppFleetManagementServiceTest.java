@@ -14,6 +14,7 @@ import com.transit.arctransit.fleet.FleetUnitSummaryView;
 
 import com.transit.arctransit.fleet.domain.FleetUnit;
 import com.transit.arctransit.fleet.domain.FleetUnitRepository;
+import com.transit.arctransit.fleet.domain.VehicleAvailabilityHistoryRepository;
 import com.transit.arctransit.fleet.domain.OperationalStatus;
 import com.transit.arctransit.fleet.domain.VehicleType;
 
@@ -92,6 +93,9 @@ class AppFleetManagementServiceTest {
 
     @Mock
     private AuditRecordingService auditService;
+
+    @Mock
+    private VehicleAvailabilityHistoryRepository historyRepository;
 
     @InjectMocks
     private AppFleetManagementService service;
@@ -228,7 +232,7 @@ class AppFleetManagementServiceTest {
     @Test
     void changeStatus_success() {
 
-        when(fleetUnitRepository.findById(1L))
+        when(fleetUnitRepository.findLockedById(1L))
                 .thenReturn(Optional.of(existingUnit));
 
         FleetUnitView result =
@@ -246,7 +250,7 @@ class AppFleetManagementServiceTest {
     @Test
     void changeStatus_invalidStatus_throwsValidation() {
 
-        when(fleetUnitRepository.findById(1L))
+        when(fleetUnitRepository.findLockedById(1L))
                 .thenReturn(Optional.of(existingUnit));
 
         assertThrows(
@@ -261,7 +265,7 @@ class AppFleetManagementServiceTest {
     @Test
     void changeStatus_notFound_throwsNotFound() {
 
-        when(fleetUnitRepository.findById(99L))
+        when(fleetUnitRepository.findLockedById(99L))
                 .thenReturn(Optional.empty());
 
         assertThrows(
@@ -280,7 +284,7 @@ class AppFleetManagementServiceTest {
     @Test
     void archiveUnit_success() {
 
-        when(fleetUnitRepository.findById(1L))
+        when(fleetUnitRepository.findLockedById(1L))
                 .thenReturn(Optional.of(existingUnit));
 
         service.archiveUnit(1L);
@@ -299,7 +303,7 @@ class AppFleetManagementServiceTest {
 
         existingUnit.archive();
 
-        when(fleetUnitRepository.findById(1L))
+        when(fleetUnitRepository.findLockedById(1L))
                 .thenReturn(Optional.of(existingUnit));
 
         service.unarchiveUnit(1L);
@@ -353,6 +357,87 @@ class AppFleetManagementServiceTest {
                         .get(0)
                         .unitNumber()
         );
+    }
+
+
+    @Test
+    void administrativeInactivityPreservesRecordedAvailability() {
+        existingUnit.activate();
+        when(fleetUnitRepository.findLockedById(1L)).thenReturn(Optional.of(existingUnit));
+
+        FleetUnitView result = service.changeAdministrativeStatus(1L, "INACTIVE");
+
+        assertEquals("INACTIVE", result.administrativeStatus());
+        assertEquals("AVAILABLE", result.availability());
+        org.junit.jupiter.api.Assertions.assertFalse(existingUnit.isAvailableForDispatch());
+    }
+
+    @Test
+    void availabilityChangeRetainsActorReasonAndTimes() {
+        when(fleetUnitRepository.findLockedById(1L)).thenReturn(Optional.of(existingUnit));
+        java.time.Instant effectiveAt = java.time.Instant.now();
+        var authentication = new org.springframework.security.authentication.UsernamePasswordAuthenticationToken(
+                "dispatcher", null, List.of());
+        org.springframework.security.core.context.SecurityContextHolder.getContext()
+                .setAuthentication(authentication);
+        try {
+            FleetUnitView result = service.changeAvailability(
+                    new com.transit.arctransit.fleet.ChangeVehicleAvailabilityCommand(
+                            1L, "INSPECTION_HOLD", effectiveAt, "Inspection requested"));
+
+            assertEquals("INACTIVE", result.administrativeStatus());
+            assertEquals("INSPECTION_HOLD", result.availability());
+            var event = org.mockito.ArgumentCaptor.forClass(
+                    com.transit.arctransit.fleet.domain.VehicleAvailabilityHistory.class);
+            verify(historyRepository).save(event.capture());
+            assertEquals("UNKNOWN", event.getValue().getPreviousAvailability());
+            assertEquals("INSPECTION_HOLD", event.getValue().getAvailability());
+            assertEquals("dispatcher", event.getValue().getRecordedBy());
+            assertEquals("STAFF_ENTRY", event.getValue().getSourceType());
+            assertEquals("UNVERIFIED", event.getValue().getVerificationStatus());
+            assertEquals("Inspection requested", event.getValue().getReason());
+            assertEquals(effectiveAt, event.getValue().getEffectiveAt());
+            org.junit.jupiter.api.Assertions.assertFalse(
+                    event.getValue().getRecordedAt().isBefore(effectiveAt));
+        } finally {
+            org.springframework.security.core.context.SecurityContextHolder.clearContext();
+        }
+    }
+
+    @Test
+    void staleAvailabilityReportDoesNotChangeStateOrAppendHistory() {
+        when(fleetUnitRepository.findLockedById(1L)).thenReturn(Optional.of(existingUnit));
+
+        assertThrows(CommandValidationException.class, () -> service.changeAvailability(
+                new com.transit.arctransit.fleet.ChangeVehicleAvailabilityCommand(
+                        1L, "AVAILABLE", java.time.Instant.EPOCH, "Old report")));
+
+        assertEquals("UNKNOWN", existingUnit.getAvailability().name());
+        org.mockito.Mockito.verifyNoInteractions(historyRepository, auditService);
+    }
+
+    @Test
+    void blankAvailabilityReasonIsRejectedBeforeMutation() {
+        when(fleetUnitRepository.findLockedById(1L)).thenReturn(Optional.of(existingUnit));
+
+        assertThrows(CommandValidationException.class, () -> service.changeAvailability(
+                new com.transit.arctransit.fleet.ChangeVehicleAvailabilityCommand(
+                        1L, "AVAILABLE", java.time.Instant.now(), " ")));
+
+        assertEquals("UNKNOWN", existingUnit.getAvailability().name());
+        org.mockito.Mockito.verifyNoInteractions(historyRepository, auditService);
+    }
+
+    @Test
+    void archivedUnitCannotReceiveAvailabilityReports() {
+        existingUnit.archive();
+        when(fleetUnitRepository.findLockedById(1L)).thenReturn(Optional.of(existingUnit));
+
+        assertThrows(CommandValidationException.class, () -> service.changeAvailability(
+                new com.transit.arctransit.fleet.ChangeVehicleAvailabilityCommand(
+                        1L, "AVAILABLE", java.time.Instant.now(), "Reported available")));
+
+        org.mockito.Mockito.verifyNoInteractions(historyRepository, auditService);
     }
 
     // ============================================================

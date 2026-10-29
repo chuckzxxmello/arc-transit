@@ -35,6 +35,9 @@ public class OperationalException {
     )
     private ExceptionType exceptionType;
 
+    @Column(name = "rule_code", nullable = false, length = 80)
+    private String ruleCode;
+
     @Column(
             name = "severity",
             nullable = false,
@@ -121,7 +124,13 @@ public class OperationalException {
             Long entityId,
             String description) {
 
+        this(type, type.name() + "_" + entityType, severity, entityType, entityId, description);
+    }
+
+    public OperationalException(ExceptionType type, String ruleCode, String severity,
+                                String entityType, Long entityId, String description) {
         this.exceptionType = type;
+        this.ruleCode = ruleCode;
         this.severity = severity;
         this.affectedEntityType = entityType;
         this.affectedEntityId = entityId;
@@ -240,6 +249,10 @@ public class OperationalException {
 
     public ExceptionType getExceptionType() {
         return exceptionType;
+    }
+
+    public String getRuleCode() {
+        return ruleCode;
     }
 
     public String getSeverity() {

@@ -30,6 +30,9 @@ public class SecurityConfig {
 								               )
 								               .permitAll()
         );
+
+        http.authorizeHttpRequests(auth -> auth.requestMatchers("/arc-ui/**")
+                .hasAnyRole("SYSTEM_ADMIN", "OPERATIONS_STAFF"));
         
         http.with(
                 VaadinSecurityConfigurer.vaadin(),
@@ -46,6 +49,12 @@ public class SecurityConfig {
         );
 
         return http.build();
+    }
+
+    @Bean
+    org.springframework.security.authorization.AuthorizationEventPublisher authorizationEventPublisher(
+            org.springframework.context.ApplicationEventPublisher publisher) {
+        return new org.springframework.security.authorization.SpringAuthorizationEventPublisher(publisher);
     }
 
     @Bean

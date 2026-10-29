@@ -9,7 +9,13 @@
         displayName = "Incident",
         allowedDependencies = {
                 "common",
-                "audit"
+                "audit",
+                "reporting",
+                "fleet",
+                "driver",
+                "route",
+                "dispatch",
+                "maintenance"
         }
 )
 package com.transit.arctransit.incident;

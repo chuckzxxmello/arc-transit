@@ -3,6 +3,14 @@ package com.transit.arctransit.driver.application;
 // driver module
 
 import com.transit.arctransit.driver.CreateDriverCommand;
+import com.transit.arctransit.driver.ChangeDriverAvailabilityCommand;
+import com.transit.arctransit.driver.DriverAvailabilityHistoryView;
+import com.transit.arctransit.driver.domain.DriverAvailability;
+import com.transit.arctransit.driver.domain.DriverAvailabilityHistory;
+import com.transit.arctransit.driver.domain.DriverAvailabilityHistoryRepository;
+import org.springframework.validation.annotation.Validated;
+import org.springframework.security.core.context.SecurityContextHolder;
+import java.time.Instant;
 import com.transit.arctransit.driver.DriverManagementService;
 import com.transit.arctransit.driver.DriverQuery;
 import com.transit.arctransit.driver.DriverSummaryView;
@@ -44,6 +52,7 @@ import org.springframework.transaction.annotation.Transactional;
 // driver management service
 
 @Service
+@Validated
 @Transactional
 public class AppDriverManagementService
         implements DriverManagementService {
@@ -64,14 +73,17 @@ public class AppDriverManagementService
     // dependencies
 
     private final DriverRepository driverRepository;
+    private final DriverAvailabilityHistoryRepository historyRepository;
     private final AuditRecordingService auditService;
 
     public AppDriverManagementService(
             DriverRepository driverRepository,
-            AuditRecordingService auditService) {
+            AuditRecordingService auditService,
+            DriverAvailabilityHistoryRepository historyRepository) {
 
         this.driverRepository = driverRepository;
         this.auditService = auditService;
+        this.historyRepository = historyRepository;
     }
 
     // register driver
@@ -140,6 +152,10 @@ public class AppDriverManagementService
 
         Driver saved =
                 driverRepository.save(driver);
+        historyRepository.save(new DriverAvailabilityHistory(
+                saved.getId(), null, saved.getAvailability().name(),
+                saved.getAvailabilityEffectiveAt(), Instant.now(), currentActor(),
+                "REGISTRATION", "Availability is unknown until reported by staff."));
 
         auditService.recordAction(
                 "DRIVER_REGISTERED",
@@ -167,7 +183,7 @@ public class AppDriverManagementService
             UpdateDriverCommand command) {
 
         Driver driver =
-                driverRepository.findById(command.id())
+                driverRepository.findLockedById(command.id())
                         .orElseThrow(() ->
                                 new ResourceNotFoundException(
                                         "Driver not found: "
@@ -265,7 +281,7 @@ public class AppDriverManagementService
             String newStatus) {
 
         Driver driver =
-                driverRepository.findById(id)
+                driverRepository.findLockedById(id)
                         .orElseThrow(() ->
                                 new ResourceNotFoundException(
                                         "Driver not found: "
@@ -304,7 +320,7 @@ public class AppDriverManagementService
     public void archiveDriver(Long id) {
 
         Driver driver =
-                driverRepository.findById(id)
+                driverRepository.findLockedById(id)
                         .orElseThrow(() ->
                                 new ResourceNotFoundException(
                                         "Driver not found: "
@@ -335,7 +351,7 @@ public class AppDriverManagementService
     public void unarchiveDriver(Long id) {
 
         Driver driver =
-                driverRepository.findById(id)
+                driverRepository.findLockedById(id)
                         .orElseThrow(() ->
                                 new ResourceNotFoundException(
                                         "Driver not found: "
@@ -366,7 +382,7 @@ public class AppDriverManagementService
     public void hardDeleteDriver(Long id) {
 
         Driver driver =
-                driverRepository.findById(id)
+                driverRepository.findLockedById(id)
                         .orElseThrow(() ->
                                 new ResourceNotFoundException(
                                         "Driver not found: "
@@ -392,6 +408,9 @@ public class AppDriverManagementService
             );
         }
 
+        auditService.recordAction("DRIVER_DELETED", "Driver", id,
+                "Permanently deleted driver " + driver.getEmployeeNumber() + ".");
+
         log.info(
                 "Permanently deleted driver '{}'.",
                 driver.getEmployeeNumber()
@@ -409,12 +428,20 @@ public class AppDriverManagementService
             DriverQuery query,
             Pageable pageable) {
 
-        // query filtering will be moved to the repository
-        // when the DriverRepository search method is added
-
-        return driverRepository
-                .findByArchivedAtIsNull(pageable)
+        String search = query == null || query.employeeNumberFilter() == null
+                || query.employeeNumberFilter().isBlank() ? null : query.employeeNumberFilter().trim();
+        EmploymentStatus status = query == null || query.statusFilter() == null
+                || query.statusFilter().isBlank() ? null : parseEmploymentStatus(query.statusFilter());
+        return driverRepository.searchActive(search, status, pageable)
                 .map(this::toSummaryView);
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    @PreAuthorize("hasAnyRole('SYSTEM_ADMIN', 'OPERATIONS_STAFF')")
+    public Page<DriverSummaryView> searchDispatchCandidates(String filter, Pageable pageable) {
+        return driverRepository.searchDispatchCandidates(filter == null ? null : filter.trim(),
+                java.time.LocalDate.now(), pageable).map(this::toSummaryView);
     }
 
     // search archived drivers
@@ -453,6 +480,68 @@ public class AppDriverManagementService
         return toView(driver);
     }
 
+    @Override
+    @PreAuthorize("hasAnyRole('SYSTEM_ADMIN', 'OPERATIONS_STAFF')")
+    public DriverView lockDriverForAssignment(Long id) {
+        return toView(findLocked(id));
+    }
+
+    @Override
+    @PreAuthorize("hasAnyRole('SYSTEM_ADMIN', 'OPERATIONS_STAFF')")
+    public DriverView changeAvailability(ChangeDriverAvailabilityCommand command) {
+        Driver driver = findLocked(command.driverId());
+        if (driver.isArchived()) {
+            throw new CommandValidationException("Archived drivers cannot receive availability changes.");
+        }
+        DriverAvailability availability;
+        try {
+            availability = DriverAvailability.valueOf(command.availability().trim().toUpperCase(Locale.ROOT));
+        } catch (IllegalArgumentException | NullPointerException exception) {
+            throw new CommandValidationException("Invalid availability.");
+        }
+        Instant recordedAt = Instant.now();
+        Instant effectiveAt = command.effectiveAt();
+        if (effectiveAt == null || effectiveAt.isAfter(recordedAt)) {
+            throw new CommandValidationException("Effective time is required and cannot be in the future.");
+        }
+        if (effectiveAt.isBefore(driver.getAvailabilityEffectiveAt())) {
+            throw new CommandValidationException("Effective time precedes the current availability report.");
+        }
+        String reason = command.reason();
+        if (reason == null || reason.isBlank() || reason.length() > 500) {
+            throw new CommandValidationException("A reason of at most 500 characters is required.");
+        }
+        String previous = driver.getAvailability().name();
+        driver.changeAvailability(availability, effectiveAt);
+        historyRepository.save(new DriverAvailabilityHistory(
+                driver.getId(), previous, availability.name(), effectiveAt, recordedAt,
+                currentActor(), "STAFF_ENTRY", reason.trim()));
+        auditService.recordAction("DRIVER_AVAILABILITY_CHANGED", "Driver",
+                driver.getId(), "Recorded availability " + availability.name());
+        return toView(driver);
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    @PreAuthorize("hasAnyRole('SYSTEM_ADMIN', 'OPERATIONS_STAFF')")
+    public Page<DriverAvailabilityHistoryView> availabilityHistory(Long id, Pageable pageable) {
+        return historyRepository.findByDriverIdOrderByRecordedAtDescIdDesc(id, pageable)
+                .map(event -> new DriverAvailabilityHistoryView(
+                        event.getId(), event.getPreviousAvailability(), event.getAvailability(),
+                        event.getEffectiveAt(), event.getRecordedAt(), event.getRecordedBy(),
+                        event.getSourceType(), event.getVerificationStatus(), event.getReason()));
+    }
+
+    private Driver findLocked(Long id) {
+        return driverRepository.findLockedById(id)
+                .orElseThrow(() -> new ResourceNotFoundException("Driver not found: " + id));
+    }
+
+    private static String currentActor() {
+        var authentication = SecurityContextHolder.getContext().getAuthentication();
+        return authentication == null ? "SYSTEM" : authentication.getName();
+    }
+
     // map driver to full view
 
     private DriverView toView(
@@ -468,7 +557,9 @@ public class AppDriverManagementService
                 driver.getLicenseExpiryDate().toString(),
                 driver.getContactNumber(),
                 driver.getEmploymentStatus().name(),
-                driver.isLicenseExpired()
+                driver.isLicenseExpired(),
+                driver.getAvailability().name(),
+                driver.getArchivedAt()
         );
     }
 
@@ -484,7 +575,9 @@ public class AppDriverManagementService
                 driver.getLicenseNumber(),
                 driver.getLicenseExpiryDate().toString(),
                 driver.getEmploymentStatus().name(),
-                driver.isLicenseExpired()
+                driver.isLicenseExpired(),
+                driver.getAvailability().name(),
+                driver.getArchivedAt()
         );
     }
 

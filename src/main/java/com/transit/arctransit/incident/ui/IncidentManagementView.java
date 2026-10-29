@@ -1,6 +1,13 @@
 package com.transit.arctransit.incident.ui;
 
+import com.transit.arctransit.common.ui.RefreshButton;
+import com.transit.arctransit.common.ui.Dialogs;
 // incident module
+import com.transit.arctransit.common.ui.FormInputs;
+import com.transit.arctransit.common.ui.RecordPicker;
+import com.transit.arctransit.fleet.FleetManagementService;
+import com.transit.arctransit.fleet.FleetUnitQuery;
+
 import com.transit.arctransit.incident.CreateIncidentCommand;
 import com.transit.arctransit.incident.IncidentManagementService;
 import com.transit.arctransit.incident.IncidentView;
@@ -13,7 +20,12 @@ import com.vaadin.flow.component.button.Button;
 import com.vaadin.flow.component.button.ButtonVariant;
 import com.vaadin.flow.component.combobox.ComboBox;
 import com.vaadin.flow.component.dialog.Dialog;
+import com.vaadin.flow.component.datetimepicker.DateTimePicker;
+import com.vaadin.flow.component.html.Paragraph;
+import java.time.LocalDateTime;
+import java.time.ZoneId;
 import com.vaadin.flow.component.grid.Grid;
+import com.transit.arctransit.common.ui.DataGrids;
 import com.vaadin.flow.component.html.H2;
 import com.vaadin.flow.component.notification.Notification;
 import com.vaadin.flow.component.notification.NotificationVariant;
@@ -44,17 +56,20 @@ public class IncidentManagementView
     // dependencies
     private final IncidentManagementService
             incidentService;
+    private final FleetManagementService fleetService;
 
     // grid
     private final Grid<IncidentView> grid =
-            new Grid<>();
+            DataGrids.create();
 
     // constructor
     public IncidentManagementView(
-            IncidentManagementService incidentService) {
+            IncidentManagementService incidentService,
+            FleetManagementService fleetService) {
 
         this.incidentService =
                 incidentService;
+        this.fleetService = fleetService;
 
         configureView();
 
@@ -102,8 +117,7 @@ public class IncidentManagementView
         HorizontalLayout toolbar =
                 new HorizontalLayout(
                         title,
-                        reportButton
-                );
+                        new HorizontalLayout(reportButton, new RefreshButton(this::refreshGrid)));
 
         toolbar.setWidthFull();
 
@@ -122,6 +136,7 @@ public class IncidentManagementView
     private void configureGrid() {
 
         grid.setSizeFull();
+        grid.addItemDoubleClickListener(event -> openDetails(event.getItem()));
 
         grid.addColumn(
                 IncidentView::id
@@ -175,6 +190,16 @@ public class IncidentManagementView
         .setHeader("Reported At")
         .setWidth("180px");
 
+        grid.addColumn(IncidentView::effectiveAt).setHeader("Effective At (UTC)");
+        grid.addColumn(IncidentView::operationalReportId).setHeader("Report ID");
+        grid.addColumn(IncidentView::maintenanceRecordId).setHeader("Maintenance ID");
+        grid.addComponentColumn(incident -> new Button("History", event -> openHistory(incident.id())));
+        grid.addComponentColumn(incident -> new Button(
+                incident.maintenanceRecordId() == null ? "Link Maintenance" : "Unlink Maintenance",
+                event -> {
+                    if (incident.maintenanceRecordId() == null) openMaintenanceDialog(incident.id());
+                    else openUnlinkMaintenanceDialog(incident);
+                })).setAutoWidth(true).setFlexGrow(0);
         grid.addComponentColumn(
                 this::createActionButtons
         )
@@ -279,7 +304,7 @@ public class IncidentManagementView
     private void openReportDialog() {
 
         Dialog dialog =
-                new Dialog();
+                Dialogs.create();
 
         dialog.setHeaderTitle(
                 "Report New Incident"
@@ -288,18 +313,18 @@ public class IncidentManagementView
         dialog.setWidth("500px");
 
         TextField titleField =
-                new TextField("Title");
+                FormInputs.text(new TextField("Title"), 200);
 
         titleField.setWidthFull();
         titleField.setRequiredIndicatorVisible(true);
 
         TextArea descriptionField =
-                new TextArea("Description");
+                FormInputs.notes(new TextArea("Description"));
 
         descriptionField.setWidthFull();
 
         ComboBox<String> severityField =
-                new ComboBox<>("Severity");
+                FormInputs.choice(new ComboBox<>("Severity"));
 
         severityField.setItems(
                 "LOW",
@@ -316,9 +341,9 @@ public class IncidentManagementView
         severityField.setRequiredIndicatorVisible(true);
 
         ComboBox<String> serviceField =
-                new ComboBox<>(
+                FormInputs.choice(new ComboBox<>(
                         "Affected Service"
-                );
+                ));
 
         serviceField.setItems(
                 "FLEET",
@@ -333,12 +358,38 @@ public class IncidentManagementView
                 true
         );
 
+        TextField affectedIdField = FormInputs.recordId(new TextField("Affected Record ID (optional)"));
+        affectedIdField.setEnabled(false);
+        ComboBox<RecordPicker.Option> affectedBus = RecordPicker.create("Affected Bus",
+                (filter, pageable) -> fleetService.searchUnits(new FleetUnitQuery(filter, null), pageable)
+                        .map(bus -> new RecordPicker.Option(bus.id(), bus.unitNumber() + " (" + bus.plateNumber() + ")"))
+                        .getContent());
+        affectedBus.setPlaceholder("Type ARC-901 or a plate and select the bus");
+        affectedBus.setVisible(false);
+        serviceField.addValueChangeListener(event -> {
+            affectedBus.clear();
+            affectedIdField.clear();
+            boolean fleet = "FLEET".equals(event.getValue());
+            affectedBus.setVisible(fleet);
+            affectedBus.setRequiredIndicatorVisible(fleet);
+            affectedIdField.setVisible(!fleet);
+            affectedIdField.setEnabled(event.getValue() != null && !fleet);
+        });
+        TextField reportIdField = FormInputs.recordId(new TextField("Operational Report ID (optional)"));
+        DateTimePicker effectiveAtField = new DateTimePicker("Effective At (Asia/Manila)");
+        effectiveAtField.setRequiredIndicatorVisible(true);
+        effectiveAtField.setValue(LocalDateTime.now(ZoneId.of("Asia/Manila")));
+
         VerticalLayout form =
                 new VerticalLayout(
                         titleField,
                         descriptionField,
                         severityField,
-                        serviceField
+                        serviceField,
+                        affectedIdField,
+                        affectedBus,
+                        reportIdField,
+                        effectiveAtField
                 );
 
         form.setPadding(false);
@@ -347,6 +398,10 @@ public class IncidentManagementView
                 new Button(
                         "Report",
                         event -> {
+                            if (!FormInputs.validate(dialog)) {
+                                return;
+                            }
+
 
                             if (titleField
                                     .getValue()
@@ -367,7 +422,12 @@ public class IncidentManagementView
                                                 descriptionField.getValue(),
                                                 severityField.getValue(),
                                                 serviceField.getValue(),
-                                                null
+                                                "FLEET".equals(serviceField.getValue())
+                                                        ? affectedBus.getValue() == null ? null : affectedBus.getValue().id()
+                                                        : optionalId(affectedIdField.getValue()),
+                                                effectiveAtField.getValue() == null ? null
+                                                        : effectiveAtField.getValue().atZone(ZoneId.of("Asia/Manila")).toInstant(),
+                                                optionalId(reportIdField.getValue())
                                         )
                                 );
 
@@ -382,7 +442,7 @@ public class IncidentManagementView
                             } catch (RuntimeException exception) {
 
                                 showError(
-                                        exception.getMessage()
+                                        com.transit.arctransit.common.ui.ApplicationErrors.message(exception)
                                 );
                             }
                         }
@@ -409,12 +469,93 @@ public class IncidentManagementView
         dialog.open();
     }
 
+    private static Long optionalId(String value) {
+        if (value == null || value.isBlank()) {
+            return null;
+        }
+        try {
+            Long id = Long.valueOf(value.trim());
+            if (id <= 0) {
+                throw new NumberFormatException();
+            }
+            return id;
+        } catch (NumberFormatException exception) {
+            throw new com.transit.arctransit.common.exception.CommandValidationException(
+                    "Record IDs must be positive integers.");
+        }
+    }
+
+    private void openHistory(Long id) {
+        Dialog dialog = Dialogs.create();
+        dialog.setHeaderTitle("Incident History");
+        VerticalLayout entries = new VerticalLayout();
+        for (var event : incidentService.getHistory(id)) {
+            entries.add(new Paragraph(event.recordedAt() + " | " + event.recordedBy() + " | "
+                    + event.newStatus() + " | " + event.reason()));
+        }
+        dialog.add(entries);
+        dialog.getFooter().add(new Button("Close", event -> dialog.close()));
+        dialog.open();
+    }
+
+    private void openMaintenanceDialog(Long id) {
+        Dialog dialog = Dialogs.create();
+        dialog.setHeaderTitle("Link Maintenance Record");
+        TextField maintenanceId = FormInputs.recordId(new TextField("Maintenance Record ID"));
+        maintenanceId.setRequiredIndicatorVisible(true);
+        dialog.add(maintenanceId);
+        dialog.getFooter().add(new Button("Cancel", event -> dialog.close()), new Button("Link", event -> {
+                            if (!FormInputs.validate(dialog)) {
+                                return;
+                            }
+
+            try {
+                Long recordId = optionalId(maintenanceId.getValue());
+                if (recordId == null) {
+                    throw new com.transit.arctransit.common.exception.CommandValidationException(
+                            "Maintenance record ID is required.");
+                }
+                incidentService.linkMaintenanceRecord(id, recordId);
+                dialog.close();
+                refreshGrid();
+            } catch (com.transit.arctransit.common.exception.CommandValidationException
+                    | com.transit.arctransit.common.exception.ResourceNotFoundException exception) {
+                showError(com.transit.arctransit.common.ui.ApplicationErrors.message(exception));
+            }
+        }));
+        dialog.open();
+    }
+
     // resolve incident
+    private void openUnlinkMaintenanceDialog(IncidentView incident) {
+        Dialog dialog = Dialogs.create();
+        dialog.setHeaderTitle("Unlink Maintenance Record");
+        dialog.setWidth("560px");
+        TextArea reason = FormInputs.notes(new TextArea("Reason for Unlinking"));
+        reason.setRequiredIndicatorVisible(true);
+        reason.setWidthFull();
+        dialog.add(new com.vaadin.flow.component.html.Paragraph("Remove the link to maintenance record "
+                + incident.maintenanceRecordId() + "? The maintenance record and both histories remain."), reason);
+        Button unlink = new Button("Unlink", event -> {
+            if (!FormInputs.validate(dialog)) return;
+            try {
+                incidentService.unlinkMaintenanceRecord(incident.id(), incident.maintenanceRecordId(), reason.getValue());
+                dialog.close();
+                refreshGrid();
+            } catch (RuntimeException exception) {
+                com.transit.arctransit.common.ui.ApplicationErrors.show(exception);
+            }
+        });
+        unlink.addThemeVariants(ButtonVariant.LUMO_PRIMARY, ButtonVariant.LUMO_ERROR);
+        dialog.getFooter().add(new Button("Cancel", event -> dialog.close()), unlink);
+        dialog.open();
+    }
+
     private void openResolveDialog(
             Long incidentId) {
 
         Dialog dialog =
-                new Dialog();
+                Dialogs.create();
 
         dialog.setHeaderTitle(
                 "Resolve Incident"
@@ -423,9 +564,9 @@ public class IncidentManagementView
         dialog.setWidth("400px");
 
         TextArea notesField =
-                new TextArea(
+                FormInputs.notes(new TextArea(
                         "Resolution Notes"
-                );
+                ));
 
         notesField.setWidthFull();
         notesField.setRequiredIndicatorVisible(true);
@@ -434,6 +575,10 @@ public class IncidentManagementView
                 new Button(
                         "Resolve",
                         event -> {
+                            if (!FormInputs.validate(dialog)) {
+                                return;
+                            }
+
 
                             if (notesField
                                     .getValue()
@@ -464,7 +609,7 @@ public class IncidentManagementView
                             } catch (RuntimeException exception) {
 
                                 showError(
-                                        exception.getMessage()
+                                        com.transit.arctransit.common.ui.ApplicationErrors.message(exception)
                                 );
                             }
                         }
@@ -554,7 +699,7 @@ public class IncidentManagementView
         } catch (RuntimeException exception) {
 
             showError(
-                    exception.getMessage()
+                    com.transit.arctransit.common.ui.ApplicationErrors.message(exception)
             );
         }
     }
@@ -603,5 +748,26 @@ public class IncidentManagementView
                 .addThemeVariants(
                         NotificationVariant.LUMO_ERROR
                 );
+    }
+
+    private void openDetails(IncidentView incident) {
+        Dialog dialog = Dialogs.details("Incident Details");
+        Dialogs.field(dialog, "Record ID", incident.id());
+        Dialogs.field(dialog, "Title", incident.title());
+        Dialogs.field(dialog, "Description", incident.description());
+        Dialogs.field(dialog, "Severity", incident.severity());
+        Dialogs.field(dialog, "Status", incident.status());
+        Dialogs.field(dialog, "Affected service", incident.affectedServiceType());
+        Dialogs.field(dialog, "Affected record ID", incident.affectedEntityId());
+        Dialogs.field(dialog, "Reported by", incident.reportedBy());
+        Dialogs.field(dialog, "Reported at", incident.reportedAt());
+        Dialogs.field(dialog, "Effective at", incident.effectiveAt());
+        Dialogs.field(dialog, "Source", incident.sourceType());
+        Dialogs.field(dialog, "Acknowledged at", incident.acknowledgedAt());
+        Dialogs.field(dialog, "Resolved at", incident.resolvedAt());
+        Dialogs.field(dialog, "Resolution notes", incident.resolutionNotes());
+        Dialogs.field(dialog, "Operational report ID", incident.operationalReportId());
+        Dialogs.field(dialog, "Maintenance record ID", incident.maintenanceRecordId());
+        dialog.open();
     }
 }

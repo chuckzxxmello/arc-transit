@@ -4,6 +4,13 @@ package com.transit.arctransit.maintenance.application;
 import com.transit.arctransit.maintenance.CreateMaintenanceCommand;
 import com.transit.arctransit.maintenance.MaintenanceRecordView;
 import com.transit.arctransit.maintenance.MaintenanceService;
+import com.transit.arctransit.maintenance.MaintenanceHistoryView;
+import com.transit.arctransit.maintenance.domain.MaintenanceHistory;
+import com.transit.arctransit.maintenance.domain.MaintenanceHistoryRepository;
+import com.transit.arctransit.fleet.ChangeVehicleAvailabilityCommand;
+import org.springframework.validation.annotation.Validated;
+import org.springframework.security.core.context.SecurityContextHolder;
+import java.time.Instant;
 
 // maintenance domain
 import com.transit.arctransit.maintenance.domain.MaintenanceRecord;
@@ -38,12 +45,14 @@ import java.util.Locale;
 // maintenance application service
 
 @Service
+@Validated
 @Transactional
 public class AppMaintenanceService
         implements MaintenanceService {
 
     // dependencies
     private final MaintenanceRepository repository;
+    private final MaintenanceHistoryRepository historyRepository;
 
     private final FleetManagementService fleetService;
 
@@ -53,11 +62,13 @@ public class AppMaintenanceService
     public AppMaintenanceService(
             MaintenanceRepository repository,
             FleetManagementService fleetService,
-            AuditRecordingService auditService) {
+            AuditRecordingService auditService,
+            MaintenanceHistoryRepository historyRepository) {
 
         this.repository = repository;
         this.fleetService = fleetService;
         this.auditService = auditService;
+        this.historyRepository = historyRepository;
     }
 
     // request maintenance
@@ -70,9 +81,10 @@ public class AppMaintenanceService
             CreateMaintenanceCommand command) {
 
         FleetUnitView fleetUnit =
-                fleetService.getUnit(
-                        command.fleetUnitId()
-                );
+                fleetService.lockUnitForAssignment(command.fleetUnitId());
+        if (fleetUnit.archivedAt() != null) {
+            throw new CommandValidationException("Cannot request maintenance for an archived fleet unit.");
+        }
 
         MaintenanceType type =
                 parseMaintenanceType(
@@ -92,6 +104,7 @@ public class AppMaintenanceService
 
         MaintenanceRecord saved =
                 repository.save(record);
+        recordHistory(saved, null, "Maintenance requested.");
 
         auditService.recordAction(
                 "MAINTENANCE_REQUESTED",
@@ -113,7 +126,9 @@ public class AppMaintenanceService
         MaintenanceRecord record =
                 findRecord(recordId);
 
+        fleetService.lockUnitForAssignment(record.getFleetUnitId());
         record.approve();
+        recordHistory(record, MaintenanceStatus.REQUESTED, "Maintenance approved.");
 
         auditService.recordAction(
                 "MAINTENANCE_APPROVED",
@@ -137,20 +152,20 @@ public class AppMaintenanceService
         MaintenanceRecord record =
                 findRecord(recordId);
 
+        FleetUnitView fleetUnit = fleetService.lockUnitForAssignment(record.getFleetUnitId());
         record.startWork();
-
-        // fleet status changes with maintenance lifecycle
-        fleetService.changeStatus(
-                record.getFleetUnitId(),
-                "UNDER_MAINTENANCE"
-        );
+        if ("AVAILABLE".equals(fleetUnit.availability()) || "UNKNOWN".equals(fleetUnit.availability())) {
+            fleetService.changeAvailability(new ChangeVehicleAvailabilityCommand(
+                    record.getFleetUnitId(), "MAINTENANCE", Instant.now(),
+                    "Maintenance record " + record.getId() + " started."));
+        }
+        recordHistory(record, MaintenanceStatus.APPROVED, "Maintenance work started.");
 
         auditService.recordAction(
                 "MAINTENANCE_STARTED",
                 "MaintenanceRecord",
                 record.getId(),
-                "Maintenance started. Fleet unit moved "
-                        + "to UNDER_MAINTENANCE."
+                "Maintenance work started; existing vehicle holds preserved."
         );
 
         return toView(record);
@@ -169,28 +184,24 @@ public class AppMaintenanceService
         MaintenanceRecord record =
                 findRecord(recordId);
 
-        String normalizedNotes =
-                normalizeOptional(
-                        technicianNotes
-                );
+        FleetUnitView fleetUnit = fleetService.lockUnitForAssignment(record.getFleetUnitId());
+        String normalizedNotes = normalizeRequired(technicianNotes, "Technician notes");
 
         record.complete(
                 normalizedNotes
         );
 
-        // return fleet unit to active state
-        fleetService.changeStatus(
-                record.getFleetUnitId(),
-                "ACTIVE"
-        );
+        releaseMaintenanceAvailability(record, fleetUnit);
+        recordHistory(record, MaintenanceStatus.IN_PROGRESS, "Maintenance work completed.");
 
         auditService.recordAction(
                 "MAINTENANCE_COMPLETED",
                 "MaintenanceRecord",
                 record.getId(),
-                "Maintenance completed. Fleet unit "
-                        + "returned to ACTIVE."
+                "Maintenance completed; availability requires an explicit staff report."
         );
+        auditService.recordAction("MAINTENANCE_ARCHIVED", "MaintenanceRecord", record.getId(),
+                "Automatically archived after completion; record and history retained.");
 
         return toView(record);
     }
@@ -204,7 +215,11 @@ public class AppMaintenanceService
         MaintenanceRecord record =
                 findRecord(recordId);
 
+        FleetUnitView fleetUnit = fleetService.lockUnitForAssignment(record.getFleetUnitId());
+        MaintenanceStatus previous = record.getMaintenanceStatus();
         record.cancel();
+        releaseMaintenanceAvailability(record, fleetUnit);
+        recordHistory(record, previous, "Maintenance cancelled.");
 
         auditService.recordAction(
                 "MAINTENANCE_CANCELLED",
@@ -219,6 +234,7 @@ public class AppMaintenanceService
     // count active maintenance
     @Override
     @Transactional(readOnly = true)
+    @PreAuthorize("hasAnyRole('SYSTEM_ADMIN', 'OPERATIONS_STAFF')")
     public long countActiveMaintenanceForUnit(
             Long fleetUnitId) {
 
@@ -235,12 +251,54 @@ public class AppMaintenanceService
     // search maintenance records
     @Override
     @Transactional(readOnly = true)
+    @PreAuthorize("hasAnyRole('SYSTEM_ADMIN', 'OPERATIONS_STAFF')")
     public Page<MaintenanceRecordView> searchRecords(
             Pageable pageable) {
 
         return repository
-                .findAllByOrderByCreatedAtDesc(pageable)
+                .findByArchivedAtIsNull(pageable)
                 .map(this::toView);
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    @PreAuthorize("hasRole('SYSTEM_ADMIN')")
+    public Page<MaintenanceRecordView> searchArchivedRecords(String filter, Pageable pageable) {
+        return repository.searchArchived(filter == null ? "" : filter.trim(), pageable).map(this::toView);
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    @PreAuthorize("hasAnyRole('SYSTEM_ADMIN', 'OPERATIONS_STAFF')")
+    public MaintenanceRecordView getRecord(Long id) {
+        return toView(findRecord(id));
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    @PreAuthorize("hasAnyRole('SYSTEM_ADMIN', 'OPERATIONS_STAFF')")
+    public Page<MaintenanceHistoryView> history(Long id, Pageable pageable) {
+        return historyRepository.findByMaintenanceRecordIdOrderByRecordedAtDescIdDesc(id, pageable)
+                .map(event -> new MaintenanceHistoryView(event.getId(), event.getPreviousStatus(),
+                        event.getStatus(), event.getRecordedAt(), event.getRecordedBy(), event.getReason()));
+    }
+
+    private void releaseMaintenanceAvailability(MaintenanceRecord record, FleetUnitView fleetUnit) {
+        if (fleetUnit.archivedAt() == null && "MAINTENANCE".equals(fleetUnit.availability())
+                && countActiveMaintenanceForUnit(record.getFleetUnitId()) == 0) {
+            fleetService.changeAvailability(new ChangeVehicleAvailabilityCommand(
+                    record.getFleetUnitId(), "UNKNOWN", Instant.now(),
+                    "Maintenance record " + record.getId()
+                            + " closed; current availability must be reported by staff."));
+        }
+    }
+
+    private void recordHistory(MaintenanceRecord record, MaintenanceStatus previous, String reason) {
+        var authentication = SecurityContextHolder.getContext().getAuthentication();
+        String actor = authentication == null ? "SYSTEM" : authentication.getName();
+        historyRepository.save(new MaintenanceHistory(record.getId(),
+                previous == null ? null : previous.name(), record.getMaintenanceStatus().name(),
+                Instant.now(), actor, reason));
     }
 
     // find record

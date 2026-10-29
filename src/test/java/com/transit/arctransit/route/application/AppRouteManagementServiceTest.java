@@ -10,6 +10,8 @@ import com.transit.arctransit.route.RouteView;
 
 import com.transit.arctransit.route.domain.Route;
 import com.transit.arctransit.route.domain.RouteRepository;
+import com.transit.arctransit.route.domain.RouteVersion;
+import com.transit.arctransit.route.domain.RouteVersionRepository;
 
 // audit
 
@@ -71,6 +73,12 @@ class AppRouteManagementServiceTest {
 
     @Mock
     private AuditRecordingService auditService;
+
+    @Mock
+    private RouteVersionRepository versionRepository;
+
+    @Mock
+    private com.transit.arctransit.route.domain.RouteScheduleRepository scheduleRepository;
 
     @InjectMocks
     private AppRouteManagementService service;
@@ -307,6 +315,125 @@ class AppRouteManagementServiceTest {
                         .get(0)
                         .routeCode()
         );
+    }
+
+    @Test
+    void publishNewVersion_preservesPreviousDefinitionAndStops() {
+        var today = java.time.LocalDate.now(java.time.ZoneId.of("Asia/Manila"));
+        existingRoute.addStop(new com.transit.arctransit.route.domain.RouteStop("Original stop", 1, 0));
+        var previous = new RouteVersion(existingRoute, today.minusDays(7), null);
+        setVersionId(previous, 10L);
+        when(routeRepository.findByIdForUpdate(1L)).thenReturn(Optional.of(existingRoute));
+        when(routeRepository.findByRouteCode("032GX")).thenReturn(Optional.of(existingRoute));
+        when(versionRepository.findFirstByRouteIdOrderByEffectiveFromDesc(1L))
+                .thenReturn(Optional.of(previous));
+
+        service.updateRoute(new com.transit.arctransit.route.UpdateRouteCommand(1L,
+                "032GX", "Later route definition", "Later configuration", 100,
+                List.of(new CreateRouteCommand.StopEntry("New stop", 1, 0)), today, null));
+
+        assertEquals(today, previous.getEffectiveTo());
+        assertEquals("Mendez-PITX-Ayala One", previous.getRouteName());
+        assertEquals("Original stop", previous.getStops().getFirst().getStopName());
+        assertEquals("Later route definition", existingRoute.getRouteName());
+        var version = org.mockito.ArgumentCaptor.forClass(RouteVersion.class);
+        verify(versionRepository).save(version.capture());
+        assertEquals("New stop", version.getValue().getStops().getFirst().getStopName());
+        verify(routeRepository).flush();
+    }
+
+    @Test
+    void publishNewVersion_rejectsInvalidatingAlreadyPlannedTrip() {
+        var today = java.time.LocalDate.now(java.time.ZoneId.of("Asia/Manila"));
+        var previous = new RouteVersion(existingRoute, today.minusDays(7), null);
+        setVersionId(previous, 10L);
+        when(routeRepository.findByIdForUpdate(1L)).thenReturn(Optional.of(existingRoute));
+        when(routeRepository.findByRouteCode("032GX")).thenReturn(Optional.of(existingRoute));
+        when(versionRepository.findFirstByRouteIdOrderByEffectiveFromDesc(1L))
+                .thenReturn(Optional.of(previous));
+        when(versionRepository.hasAssignmentsOnOrAfter(10L, today)).thenReturn(true);
+
+        assertThrows(BusinessConflictException.class, () -> service.updateRoute(
+                new com.transit.arctransit.route.UpdateRouteCommand(1L, "032GX",
+                        "Later definition", null, 60, List.of(), today, null)));
+        assertEquals("Mendez-PITX-Ayala One", existingRoute.getRouteName());
+        org.junit.jupiter.api.Assertions.assertNull(previous.getEffectiveTo());
+        org.mockito.Mockito.verify(versionRepository, org.mockito.Mockito.never()).save(any());
+    }
+
+    @Test
+    void effectiveVersion_respectsExclusiveEndBoundary() {
+        var start = java.time.LocalDate.of(2026, 11, 1);
+        var end = start.plusDays(10);
+        var version = new RouteVersion(existingRoute, start, end);
+        org.junit.jupiter.api.Assertions.assertTrue(version.isEffectiveOn(start));
+        org.junit.jupiter.api.Assertions.assertTrue(version.isEffectiveOn(end.minusDays(1)));
+        org.junit.jupiter.api.Assertions.assertFalse(version.isEffectiveOn(end));
+        org.junit.jupiter.api.Assertions.assertFalse(version.isEffectiveOn(start.minusDays(1)));
+        assertThrows(IllegalArgumentException.class,
+                () -> new RouteVersion(existingRoute, start, start));
+    }
+
+    @Test
+    void publicationRejectsSameStartDateWithoutChangingDefinition() {
+        var today = java.time.LocalDate.now(java.time.ZoneId.of("Asia/Manila"));
+        var previous = new RouteVersion(existingRoute, today, null);
+        when(routeRepository.findByIdForUpdate(1L)).thenReturn(Optional.of(existingRoute));
+        when(routeRepository.findByRouteCode("032GX")).thenReturn(Optional.of(existingRoute));
+        when(versionRepository.findFirstByRouteIdOrderByEffectiveFromDesc(1L))
+                .thenReturn(Optional.of(previous));
+        assertThrows(BusinessConflictException.class, () -> service.updateRoute(
+                new com.transit.arctransit.route.UpdateRouteCommand(1L, "032GX",
+                        "Later definition", null, 60, List.of(), today, null)));
+    }
+
+    private static void setVersionId(RouteVersion version, Long id) {
+        try {
+            var field = RouteVersion.class.getDeclaredField("id");
+            field.setAccessible(true);
+            field.set(version, id);
+        } catch (ReflectiveOperationException exception) {
+            throw new IllegalStateException(exception);
+        }
+    }
+
+    @Test
+    void configuredSchedule_keepsDefinitionWhenDeactivated() {
+        var start = java.time.LocalDate.of(2026, 11, 1);
+        var departure = java.time.LocalTime.of(8, 30);
+        var schedule = new com.transit.arctransit.route.domain.RouteSchedule(
+                1L, "Morning service", departure, start, start.plusMonths(1));
+        when(scheduleRepository.findById(30L)).thenReturn(Optional.of(schedule));
+        when(routeRepository.findByIdForUpdate(1L)).thenReturn(Optional.of(existingRoute));
+
+        var result = service.changeScheduleActive(30L, false);
+
+        org.junit.jupiter.api.Assertions.assertFalse(result.active());
+        assertEquals(departure, result.plannedDeparture());
+        assertEquals(start, result.effectiveFrom());
+        assertEquals(start.plusMonths(1), result.effectiveTo());
+    }
+
+    @Test
+    void configuredSchedule_rejectsNonPositiveEffectiveInterval() {
+        var start = java.time.LocalDate.of(2026, 11, 1);
+        assertThrows(com.transit.arctransit.common.exception.CommandValidationException.class,
+                () -> service.createSchedule(new com.transit.arctransit.route.CreateRouteScheduleCommand(
+                        1L, "Morning", java.time.LocalTime.of(8, 30), start, start)));
+    }
+
+    @Test
+    void configuredSchedule_creationProducesReusableTemplate() {
+        var start = java.time.LocalDate.of(2026, 11, 1);
+        var departure = java.time.LocalTime.of(8, 30);
+        when(routeRepository.findByIdForUpdate(1L)).thenReturn(Optional.of(existingRoute));
+        when(scheduleRepository.save(any())).thenAnswer(invocation -> invocation.getArgument(0));
+        var result = service.createSchedule(new com.transit.arctransit.route.CreateRouteScheduleCommand(
+                1L, "Morning", departure, start, null));
+        org.junit.jupiter.api.Assertions.assertTrue(result.active());
+        assertEquals(1L, result.routeId());
+        assertEquals(departure, result.plannedDeparture());
+        org.junit.jupiter.api.Assertions.assertTrue(result.isEffectiveOn(start));
     }
 
     // test utility

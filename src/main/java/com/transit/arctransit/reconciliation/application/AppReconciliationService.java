@@ -17,7 +17,12 @@ import com.transit.arctransit.dispatch.DispatchService;
 // fleet
 
 import com.transit.arctransit.fleet.FleetManagementService;
-import com.transit.arctransit.fleet.FleetUnitSummaryView;
+import com.transit.arctransit.fleet.FleetUnitView;
+import com.transit.arctransit.driver.DriverManagementService;
+import com.transit.arctransit.driver.DriverView;
+import com.transit.arctransit.maintenance.MaintenanceRecordView;
+import com.transit.arctransit.reporting.OperationalReportService;
+import com.transit.arctransit.reporting.ReportingProperties;
 
 // incident
 
@@ -56,6 +61,10 @@ import org.springframework.transaction.annotation.Transactional;
 // java
 
 import java.time.Instant;
+import java.time.LocalDate;
+import java.util.ArrayList;
+import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -64,6 +73,7 @@ import java.util.stream.Collectors;
 // reconciliation application service
 
 @Service
+@org.springframework.validation.annotation.Validated
 @Transactional
 public class AppReconciliationService
         implements ReconciliationService {
@@ -101,6 +111,9 @@ public class AppReconciliationService
     private final DispatchService dispatchService;
 
     private final IncidentManagementService incidentService;
+    private final DriverManagementService driverService;
+    private final OperationalReportService reportService;
+    private final ReportingProperties reportingProperties;
 
     // constructor
 
@@ -111,7 +124,10 @@ public class AppReconciliationService
             FleetManagementService fleetService,
             MaintenanceService maintenanceService,
             DispatchService dispatchService,
-            IncidentManagementService incidentService) {
+            IncidentManagementService incidentService,
+            DriverManagementService driverService,
+            OperationalReportService reportService,
+            ReportingProperties reportingProperties) {
 
         this.repository = repository;
         this.properties = properties;
@@ -120,6 +136,9 @@ public class AppReconciliationService
         this.maintenanceService = maintenanceService;
         this.dispatchService = dispatchService;
         this.incidentService = incidentService;
+        this.driverService = driverService;
+        this.reportService = reportService;
+        this.reportingProperties = reportingProperties;
     }
 
     // run reconciliation
@@ -127,6 +146,7 @@ public class AppReconciliationService
     @Override
     @PreAuthorize("hasRole('SYSTEM_ADMIN')")
     public void runReconciliation() {
+        repository.lockForScan();
 
         auditService.recordAction(
                 "RECONCILIATION_STARTED",
@@ -139,6 +159,7 @@ public class AppReconciliationService
 
             checkContradictions();
             checkStaleStates();
+            checkOperationalReports();
 
             auditService.recordAction(
                     "RECONCILIATION_COMPLETED",
@@ -149,7 +170,7 @@ public class AppReconciliationService
 
         } catch (RuntimeException exception) {
 
-            auditService.recordAction(
+            auditService.recordFailure(
                     "RECONCILIATION_FAILED",
                     "ReconciliationEngine",
                     0L,
@@ -163,66 +184,103 @@ public class AppReconciliationService
     // contradiction checks
 
     private void checkContradictions() {
-
+        Map<Long, FleetUnitView> units = new HashMap<>();
+        Map<Long, DriverView> drivers = new HashMap<>();
+        Set<Long> maintenanceHolds = new HashSet<>();
+        Set<Long> workInProgress = new HashSet<>();
         int pageNumber = 0;
-
-        while (true) {
-
-            Page<FleetUnitSummaryView> page =
-                    fleetService.searchUnits(
-                            null,
-                            PageRequest.of(
-                                    pageNumber,
-                                    PAGE_SIZE
-                            )
-                    );
-
-            for (FleetUnitSummaryView unit : page) {
-
-                checkFleetMaintenanceContradiction(unit);
+        Page<MaintenanceRecordView> maintenancePage;
+        do {
+            maintenancePage = maintenanceService.searchRecords(PageRequest.of(pageNumber++, PAGE_SIZE));
+            for (MaintenanceRecordView record : maintenancePage) {
+                if (Set.of("REQUESTED", "APPROVED", "IN_PROGRESS").contains(record.maintenanceStatus())) {
+                    maintenanceHolds.add(record.fleetUnitId());
+                }
+                if ("IN_PROGRESS".equals(record.maintenanceStatus())) {
+                    workInProgress.add(record.fleetUnitId());
+                }
             }
+        } while (maintenancePage.hasNext());
 
-            if (!page.hasNext()) {
-                break;
+        for (Long unitId : workInProgress) {
+            FleetUnitView unit = units.computeIfAbsent(unitId, fleetService::getUnit);
+            if ("AVAILABLE".equals(unit.availability())) {
+                recordExceptionIfNotExists(ExceptionType.CONTRADICTION,
+                        "MAINTENANCE_AVAILABILITY_CONFLICT", "HIGH", "FLEET", unitId,
+                        "Fleet unit " + unit.unitNumber()
+                                + " is recorded AVAILABLE while maintenance is IN_PROGRESS.");
             }
+        }
 
-            pageNumber++;
+        List<DispatchAssignmentView> activeAssignments = new ArrayList<>();
+        pageNumber = 0;
+        Page<DispatchAssignmentView> dispatchPage;
+        do {
+            dispatchPage = dispatchService.searchAssignments(null, PageRequest.of(pageNumber++, PAGE_SIZE));
+            for (DispatchAssignmentView assignment : dispatchPage) {
+                if (Set.of("SCHEDULED", "IN_PROGRESS").contains(assignment.dispatchStatus())) {
+                    activeAssignments.add(assignment);
+                }
+            }
+        } while (dispatchPage.hasNext());
+
+        for (DispatchAssignmentView assignment : activeAssignments) {
+            FleetUnitView unit = units.computeIfAbsent(assignment.fleetUnitId(), fleetService::getUnit);
+            if (unit.archivedAt() != null || !"ACTIVE".equals(unit.administrativeStatus())
+                    || !"AVAILABLE".equals(unit.availability())) {
+                recordExceptionIfNotExists(ExceptionType.CONTRADICTION,
+                        "ASSIGNMENT_VEHICLE_UNAVAILABLE", "HIGH", "DISPATCH", assignment.id(),
+                        "Active dispatch " + assignment.id() + " references fleet unit " + unit.id()
+                                + " whose recorded administrative state or availability prevents assignment.");
+            }
+            if (maintenanceHolds.contains(assignment.fleetUnitId())) {
+                recordExceptionIfNotExists(ExceptionType.CONTRADICTION,
+                        "ASSIGNMENT_MAINTENANCE_HOLD", "HIGH", "DISPATCH", assignment.id(),
+                        "Active dispatch " + assignment.id() + " references fleet unit "
+                                + unit.id() + " with an active maintenance hold.");
+            }
+            DriverView driver = drivers.computeIfAbsent(assignment.driverId(), driverService::getDriver);
+            if (driver.archivedAt() != null || !"ACTIVE".equals(driver.employmentStatus())
+                    || !"AVAILABLE".equals(driver.availability())) {
+                recordExceptionIfNotExists(ExceptionType.CONTRADICTION,
+                        "ASSIGNMENT_DRIVER_UNAVAILABLE", "HIGH", "DISPATCH", assignment.id(),
+                        "Active dispatch " + assignment.id() + " references unavailable driver " + driver.id() + ".");
+            }
+            LocalDate serviceDate = LocalDate.parse(assignment.dispatchDate());
+            if (driver.licenseExpiryDate() == null
+                    || LocalDate.parse(driver.licenseExpiryDate()).isBefore(serviceDate)) {
+                recordExceptionIfNotExists(ExceptionType.CONTRADICTION,
+                        "ASSIGNMENT_DRIVER_LICENSE_EXPIRED", "HIGH", "DISPATCH", assignment.id(),
+                        "Driver " + driver.id() + " qualification is not valid for active dispatch " + assignment.id() + ".");
+            }
+            if (assignment.routeVersionId() == null
+                    || (!assignment.legacyRouteSnapshot()
+                        && (assignment.routeVersionEffectiveFrom() == null
+                            || serviceDate.isBefore(LocalDate.parse(assignment.routeVersionEffectiveFrom()))
+                            || (assignment.routeVersionEffectiveTo() != null
+                                && !serviceDate.isBefore(LocalDate.parse(assignment.routeVersionEffectiveTo())))))) {
+                recordExceptionIfNotExists(ExceptionType.CONTRADICTION,
+                        "ASSIGNMENT_ROUTE_VERSION_INVALID", "HIGH", "DISPATCH", assignment.id(),
+                        "Active dispatch " + assignment.id() + " has no route version applicable to its service date.");
+            }
         }
     }
 
-    // ACTIVE fleet unit with active maintenance
-
-    private void checkFleetMaintenanceContradiction(
-            FleetUnitSummaryView unit) {
-
-        if (!"ACTIVE".equals(
-                unit.operationalStatus()
-        )) {
-
-            return;
+    private void checkOperationalReports() {
+        Instant staleBefore = Instant.now().minus(reportingProperties.staleAfter());
+        for (var report : reportService.getReviewCandidates(staleBefore)) {
+            if ("UNVERIFIED".equals(report.verificationStatus())) {
+                recordExceptionIfNotExists(ExceptionType.MISSING_DATA,
+                        "UNVERIFIED_OPERATIONAL_REPORT", "MEDIUM", "OPERATIONAL_REPORT", report.id(),
+                        "Operational report " + report.id() + " remains unverified and requires human review.");
+            }
+            if (!Set.of("REJECTED", "SUPERSEDED").contains(report.verificationStatus())
+                    && !report.effectiveAt().isAfter(staleBefore)) {
+                recordExceptionIfNotExists(ExceptionType.STALE_STATE,
+                        "STALE_OPERATIONAL_REPORT", "MEDIUM", "OPERATIONAL_REPORT", report.id(),
+                        "Operational report " + report.id() + " is older than the configured freshness threshold.");
+            }
         }
-
-        long activeMaintenance =
-                maintenanceService
-                        .countActiveMaintenanceForUnit(
-                                unit.id()
-                        );
-
-        if (activeMaintenance <= 0) {
-            return;
-        }
-
-        recordExceptionIfNotExists(
-                ExceptionType.CONTRADICTION,
-                "HIGH",
-                "FLEET",
-                unit.id(),
-                "Fleet unit "
-                        + unit.unitNumber()
-                        + " is marked ACTIVE but has "
-                        + activeMaintenance
-                        + " active maintenance records."
-        );
     }
 
     // stale state checks
@@ -266,20 +324,9 @@ public class AppReconciliationService
                     continue;
                 }
 
-                /*
-                 * DispatchAssignmentView currently needs the
-                 * actual departure timestamp for precise stale
-                 * detection.
-                 *
-                 * Until that field is exposed by Dispatch,
-                 * scheduled departure is the only available
-                 * timestamp.
-                 */
-
-                Instant scheduledDeparture =
-                        Instant.parse(
-                                dispatch.scheduledDeparture()
-                        );
+                Instant scheduledDeparture = Instant.parse(
+                        dispatch.actualDeparture() != null
+                                ? dispatch.actualDeparture() : dispatch.scheduledDeparture());
 
                 if (scheduledDeparture.isBefore(
                         threshold
@@ -287,6 +334,7 @@ public class AppReconciliationService
 
                     recordExceptionIfNotExists(
                             ExceptionType.STALE_STATE,
+                            "AGING_ACTIVE_TRIP",
                             "MEDIUM",
                             "DISPATCH",
                             dispatch.id(),
@@ -350,6 +398,7 @@ public class AppReconciliationService
 
                     recordExceptionIfNotExists(
                             ExceptionType.STALE_STATE,
+                            "AGING_OPEN_INCIDENT",
                             "MEDIUM",
                             "INCIDENT",
                             incident.id(),
@@ -373,15 +422,25 @@ public class AppReconciliationService
 
     private void recordExceptionIfNotExists(
             ExceptionType type,
+            String ruleCode,
             String severity,
             String entityType,
             Long entityId,
             String description) {
 
+        if ("FLEET".equals(entityType)) {
+            try {
+                fleetService.lockUnitForAssignment(entityId);
+            } catch (ResourceNotFoundException exception) {
+                // A bus can be deleted after the reconciliation scan reads its snapshot.
+                return;
+            }
+        }
+
         boolean exists =
                 repository
-                        .existsByExceptionTypeAndAffectedEntityTypeAndAffectedEntityIdAndExceptionStatusIn(
-                                type,
+                        .existsByRuleCodeAndAffectedEntityTypeAndAffectedEntityIdAndExceptionStatusIn(
+                                ruleCode,
                                 entityType,
                                 entityId,
                                 OPEN_STATUSES
@@ -394,6 +453,7 @@ public class AppReconciliationService
         OperationalException exception =
                 new OperationalException(
                         type,
+                        ruleCode,
                         severity,
                         entityType,
                         entityId,
@@ -655,16 +715,10 @@ public class AppReconciliationService
     private static String normalizeNotes(
             String notes) {
 
-        if (notes == null) {
-            return null;
+        if (notes == null || notes.isBlank()) {
+            throw new CommandValidationException("Resolution notes are required.");
         }
-
-        String normalized =
-                notes.trim();
-
-        return normalized.isBlank()
-                ? null
-                : normalized;
+        return notes.trim();
     }
 
     // map entity to view
@@ -685,7 +739,8 @@ public class AppReconciliationService
                 exception.getAcknowledgedAt(),
                 exception.getResolvedBy(),
                 exception.getResolvedAt(),
-                exception.getResolutionNotes()
+                exception.getResolutionNotes(),
+                exception.getRuleCode()
         );
     }
 }

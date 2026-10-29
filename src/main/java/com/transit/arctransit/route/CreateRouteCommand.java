@@ -1,5 +1,8 @@
 package com.transit.arctransit.route;
 
+import com.transit.arctransit.common.validation.SafeText;
+import jakarta.validation.constraints.Size;
+
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotNull;
@@ -12,19 +15,25 @@ import java.util.List;
 public record CreateRouteCommand(
 
         @NotBlank(message = "Route code cannot be blank")
-        String routeCode,
+        @Size(max = 30, message = "Route code must not exceed 30 characters.") @SafeText String routeCode,
 
         @NotBlank(message = "Route name cannot be blank")
-        String routeName,
+        @Size(max = 100, message = "Route name must not exceed 100 characters.") @SafeText String routeName,
 
-        String description,
+        @Size(max = 500, message = "Description must not exceed 500 characters.") @SafeText(multiline = true) String description,
 
         @Positive(message = "Estimated duration must be greater than zero")
         Integer estimatedDurationMinutes,
 
-        List<@Valid StopEntry> stops
+        List<@Valid StopEntry> stops,
+        java.time.LocalDate effectiveFrom
 
 ) {
+
+    public CreateRouteCommand(String routeCode, String routeName, String description,
+                              Integer estimatedDurationMinutes, List<StopEntry> stops) {
+        this(routeCode, routeName, description, estimatedDurationMinutes, stops, null);
+    }
 
     public CreateRouteCommand {
         stops = stops == null
@@ -36,7 +45,7 @@ public record CreateRouteCommand(
     public record StopEntry(
 
             @NotBlank(message = "Stop name cannot be blank")
-            String stopName,
+            @Size(max = 100, message = "Stop name must not exceed 100 characters.") @SafeText String stopName,
 
             @Positive(message = "Stop sequence must be greater than zero")
             int stopSequence,

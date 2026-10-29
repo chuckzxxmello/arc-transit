@@ -5,6 +5,6 @@
 
 @org.springframework.modulith.ApplicationModule(
         displayName = "Analytics",
-        allowedDependencies = {"auth", "fleet", "driver", "route", "dispatch", "incident", "maintenance", "reconciliation", "common"}
+        allowedDependencies = {"auth", "fleet", "driver", "route", "dispatch", "incident", "maintenance", "reconciliation", "common", "reporting"}
 )
 package com.transit.arctransit.analytics;

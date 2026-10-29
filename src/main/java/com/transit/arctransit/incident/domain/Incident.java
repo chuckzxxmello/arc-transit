@@ -111,6 +111,18 @@ public class Incident {
     )
     private Instant archivedAt;
 
+    @Column(name = "effective_at", nullable = false)
+    private Instant effectiveAt;
+
+    @Column(name = "source_type", nullable = false, length = 30)
+    private String sourceType = "STAFF_ENTRY";
+
+    @Column(name = "operational_report_id")
+    private Long operationalReportId;
+
+    @Column(name = "maintenance_record_id")
+    private Long maintenanceRecordId;
+
     @Version
     private Long version;
 
@@ -140,10 +152,39 @@ public class Incident {
         Instant now =
                 Instant.now();
 
+        this.effectiveAt = now;
         this.reportedAt = now;
         this.createdAt = now;
         this.updatedAt = now;
     }
+
+    public void setReportContext(Instant effectiveAt, Long operationalReportId) {
+        this.effectiveAt = effectiveAt;
+        this.operationalReportId = operationalReportId;
+    }
+
+    public void linkMaintenanceRecord(Long maintenanceRecordId) {
+        if (this.maintenanceRecordId != null) {
+            throw new com.transit.arctransit.common.exception.CommandValidationException(
+                    "A maintenance record is already linked to this incident.");
+        }
+        this.maintenanceRecordId = maintenanceRecordId;
+        this.updatedAt = Instant.now();
+    }
+
+    public void unlinkMaintenanceRecord(Long expectedMaintenanceRecordId) {
+        if (maintenanceRecordId == null || !maintenanceRecordId.equals(expectedMaintenanceRecordId)) {
+            throw new com.transit.arctransit.common.exception.BusinessConflictException(
+                    "The maintenance link changed. Refresh the incident and try again.");
+        }
+        this.maintenanceRecordId = null;
+        this.updatedAt = Instant.now();
+    }
+
+    public Instant getEffectiveAt() { return effectiveAt; }
+    public String getSourceType() { return sourceType; }
+    public Long getOperationalReportId() { return operationalReportId; }
+    public Long getMaintenanceRecordId() { return maintenanceRecordId; }
 
     // acknowledge incident
     public void acknowledge() {
@@ -189,6 +230,11 @@ public class Incident {
                 "resolve"
         );
 
+        if (resolutionNotes == null || resolutionNotes.isBlank()) {
+            throw new com.transit.arctransit.common.exception.CommandValidationException(
+                    "Resolution notes are required.");
+        }
+
         Instant now =
                 Instant.now();
 
@@ -214,8 +260,8 @@ public class Incident {
         this.status =
                 IncidentStatus.CLOSED;
 
-        this.updatedAt =
-                Instant.now();
+        this.updatedAt = Instant.now();
+        this.archivedAt = this.updatedAt;
     }
 
     // validate lifecycle transition

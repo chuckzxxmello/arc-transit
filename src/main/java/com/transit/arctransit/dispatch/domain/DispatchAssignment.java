@@ -49,6 +49,12 @@ public class DispatchAssignment {
     )
     private Long routeId;
 
+    @Column(name = "route_schedule_id")
+    private Long scheduleId;
+
+    @Column(name = "route_version_id", nullable = false)
+    private Long routeVersionId;
+
     @Column(
             name = "dispatch_date",
             nullable = false
@@ -139,6 +145,28 @@ public class DispatchAssignment {
 
         this.createdAt = now;
         this.updatedAt = now;
+    }
+
+    public void linkRouteVersion(Long routeVersionId) {
+        if (this.routeVersionId != null || routeVersionId == null) {
+            throw new IllegalArgumentException("An assignment must retain its original route version.");
+        }
+        this.routeVersionId = routeVersionId;
+    }
+
+    public void linkSchedule(Long scheduleId) {
+        if (this.scheduleId != null) {
+            throw new IllegalArgumentException("An assignment must retain its original schedule.");
+        }
+        this.scheduleId = scheduleId;
+    }
+
+    public Long getScheduleId() {
+        return scheduleId;
+    }
+
+    public Long getRouteVersionId() {
+        return routeVersionId;
     }
 
     // start trip

@@ -11,9 +11,6 @@ import org.springframework.stereotype.Component;
 @Component
 public class AuthenticationEventListener {
 
-    private static final long NO_TARGET_ID = 0L;
-    private static final String LOGIN_SUCCESS = "USER_LOGIN_SUCCESS";
-    private static final String LOGIN_FAILED = "USER_LOGIN_FAILED";
     private final AuditRecordingService auditRecordingService;
 
     public AuthenticationEventListener(AuditRecordingService auditRecordingService) {
@@ -25,13 +22,7 @@ public class AuthenticationEventListener {
 
         String username = event.getAuthentication().getName();
 
-        auditRecordingService.recordAction(
-						                LOGIN_SUCCESS,
-						                "AppUser",
-						                NO_TARGET_ID,
-						                "Authentication succeeded for user: " 
-						                								+ username
-        );
+        auditRecordingService.recordAuthentication(username, true, null);
     }
 
     @EventListener
@@ -40,15 +31,26 @@ public class AuthenticationEventListener {
         String username = event.getAuthentication().getName();
         String failureType = event.getClass().getSimpleName();
 
-        auditRecordingService.recordAction(
-						                LOGIN_FAILED,
-						                "AppUser",
-						                NO_TARGET_ID,
-						                "Authentication failed for user: "
-											                        + username
-											                        + " ("
-											                        + failureType
-											                        + ")"
-        );
+        auditRecordingService.recordAuthentication(username, false, failureType);
+    }
+
+    @EventListener
+    public void onAuthorizationDenied(
+            org.springframework.security.authorization.event.AuthorizationDeniedEvent<?> event) {
+        if (!(event.getObject() instanceof org.aopalliance.intercept.MethodInvocation invocation)) {
+            return;
+        }
+        String actor = "ANONYMOUS";
+        try {
+            var authentication = event.getAuthentication().get();
+            if (authentication != null) {
+                actor = authentication.getName();
+            }
+        } catch (org.springframework.security.core.AuthenticationException exception) {
+            // An unauthenticated attempt has no principal to attribute.
+        }
+        auditRecordingService.recordDeniedAction(actor,
+                invocation.getMethod().getDeclaringClass().getSimpleName()
+                        + "." + invocation.getMethod().getName());
     }
 }

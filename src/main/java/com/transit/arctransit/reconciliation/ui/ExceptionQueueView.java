@@ -1,6 +1,10 @@
 package com.transit.arctransit.reconciliation.ui;
 
+import com.transit.arctransit.common.ui.RefreshButton;
+import com.transit.arctransit.common.ui.Dialogs;
 // common UI
+import com.transit.arctransit.common.ui.FormInputs;
+
 import com.transit.arctransit.common.ui.MainLayout;
 
 // reconciliation
@@ -16,6 +20,7 @@ import com.vaadin.flow.component.button.Button;
 import com.vaadin.flow.component.button.ButtonVariant;
 import com.vaadin.flow.component.dialog.Dialog;
 import com.vaadin.flow.component.grid.Grid;
+import com.transit.arctransit.common.ui.DataGrids;
 import com.vaadin.flow.component.html.H2;
 import com.vaadin.flow.component.html.Span;
 import com.vaadin.flow.component.notification.Notification;
@@ -56,7 +61,7 @@ public class ExceptionQueueView
             scenarioGeneratorProvider;
 
     // UI components
-    private final Grid<OperationalExceptionView> grid = new Grid<>();
+    private final Grid<OperationalExceptionView> grid = DataGrids.create();
     private final Span summarySpan = new Span();
 
     // constructor
@@ -112,8 +117,7 @@ public class ExceptionQueueView
                 new HorizontalLayout(
                         title,
                         summarySpan,
-                        runButton
-                );
+                        new HorizontalLayout(runButton, new RefreshButton(this::refreshGrid)));
 
         toolbar.setWidthFull();
 
@@ -187,6 +191,7 @@ public class ExceptionQueueView
     private void configureGrid() {
 
         grid.setSizeFull();
+        grid.addItemDoubleClickListener(event -> openDetails(event.getItem()));
 
         grid.addColumn(
                 OperationalExceptionView::id
@@ -201,6 +206,8 @@ public class ExceptionQueueView
         .setHeader("Type")
         .setWidth("150px")
         .setFlexGrow(0);
+
+        grid.addColumn(OperationalExceptionView::ruleCode).setHeader("Rule");
 
         grid.addComponentColumn(
                 this::createSeverityBadge
@@ -444,7 +451,7 @@ public class ExceptionQueueView
             boolean resolve) {
 
         Dialog dialog =
-                new Dialog();
+                Dialogs.create();
 
         dialog.setHeaderTitle(
                 resolve
@@ -455,9 +462,9 @@ public class ExceptionQueueView
         dialog.setWidth("400px");
 
         TextArea notesField =
-                new TextArea(
+                FormInputs.notes(new TextArea(
                         "Notes"
-                );
+                ));
 
         notesField.setWidthFull();
 
@@ -471,6 +478,9 @@ public class ExceptionQueueView
                                 ? "Resolve"
                                 : "Dismiss",
                         event -> {
+                            if (!FormInputs.validate(dialog)) {
+                                return;
+                            }
 
                             String notes =
                                     notesField
@@ -602,7 +612,7 @@ public class ExceptionQueueView
         } catch (RuntimeException exception) {
 
             showError(
-                    exception.getMessage()
+                    com.transit.arctransit.common.ui.ApplicationErrors.message(exception)
             );
         }
     }
@@ -688,5 +698,24 @@ public class ExceptionQueueView
                 .addThemeVariants(
                         NotificationVariant.LUMO_ERROR
                 );
+    }
+
+    private void openDetails(OperationalExceptionView exception) {
+        Dialog dialog = Dialogs.details("Exception Details");
+        Dialogs.field(dialog, "Record ID", exception.id());
+        Dialogs.field(dialog, "Type", exception.exceptionType());
+        Dialogs.field(dialog, "Rule", exception.ruleCode());
+        Dialogs.field(dialog, "Severity", exception.severity());
+        Dialogs.field(dialog, "Affected record type", exception.affectedEntityType());
+        Dialogs.field(dialog, "Affected record ID", exception.affectedEntityId());
+        Dialogs.field(dialog, "Description", exception.description());
+        Dialogs.field(dialog, "Status", exception.exceptionStatus());
+        Dialogs.field(dialog, "Detected at", exception.detectedAt());
+        Dialogs.field(dialog, "Acknowledged by", exception.acknowledgedBy());
+        Dialogs.field(dialog, "Acknowledged at", exception.acknowledgedAt());
+        Dialogs.field(dialog, "Resolved by", exception.resolvedBy());
+        Dialogs.field(dialog, "Resolved at", exception.resolvedAt());
+        Dialogs.field(dialog, "Notes", exception.resolutionNotes());
+        dialog.open();
     }
 }

@@ -3,10 +3,10 @@ package com.transit.arctransit.driver.domain;
 // employment status of driver
 public enum EmploymentStatus {
 
-    // driver is available for dispatch assignments
+    // active personnel record; availability and qualification are checked separately
     ACTIVE,
 
-    // driver is registered but not currently available
+    // administratively inactive personnel record
     INACTIVE,
 
     // driver is temporarily barred from assignments

@@ -27,13 +27,14 @@
 @REM   MVNW_VERBOSE - true: enable verbose log; others: silence the output
 @REM ----------------------------------------------------------------------------
 
+@SETLOCAL
 @IF "%__MVNW_ARG0_NAME__%"=="" (SET __MVNW_ARG0_NAME__=%~nx0)
 @SET __MVNW_CMD__=
 @SET __MVNW_ERROR__=
 @SET __MVNW_PSMODULEP_SAVE=%PSModulePath%
 @SET PSModulePath=
 @FOR /F "usebackq tokens=1* delims==" %%A IN (`powershell -noprofile "& {$scriptDir='%~dp0'; $script='%__MVNW_ARG0_NAME__%'; icm -ScriptBlock ([Scriptblock]::Create((Get-Content -Raw '%~f0'))) -NoNewScope}"`) DO @(
-  IF "%%A"=="MVN_CMD" (set __MVNW_CMD__=%%B) ELSE IF "%%B"=="" (echo %%A) ELSE (echo %%A=%%B)
+  IF "%%A"=="MVN_CMD" (set __MVNW_CMD__=%%B) ELSE IF "%%A"=="ARC_JAVA_HOME" (set "JAVA_HOME=%%B") ELSE IF "%%B"=="" (echo %%A) ELSE (echo %%A=%%B)
 )
 @SET PSModulePath=%__MVNW_PSMODULEP_SAVE%
 @SET __MVNW_PSMODULEP_SAVE=
@@ -46,6 +47,45 @@
 : end batch / begin powershell #>
 
 $ErrorActionPreference = "Stop"
+function Get-ArcJdk21 {
+    function Test-ArcJdk21([string]$Path) {
+        if ([string]::IsNullOrWhiteSpace($Path)) { return $false }
+        $arcRelease = Join-Path $Path 'release'
+        if (-not (Test-Path -LiteralPath $arcRelease -PathType Leaf) -or
+            -not (Test-Path -LiteralPath (Join-Path $Path 'bin/java.exe') -PathType Leaf) -or
+            -not (Test-Path -LiteralPath (Join-Path $Path 'bin/javac.exe') -PathType Leaf)) {
+            return $false
+        }
+        return (Get-Content -LiteralPath $arcRelease -Raw) -match '(?m)^JAVA_VERSION="21(?:[.+-]|")'
+    }
+
+    if ($env:ARC_JAVA_HOME) {
+        if (-not (Test-ArcJdk21 $env:ARC_JAVA_HOME)) {
+            throw 'ARC_JAVA_HOME must point to a complete JDK 21 installation.'
+        }
+        return $env:ARC_JAVA_HOME
+    }
+
+    if (Test-ArcJdk21 $env:JAVA_HOME) { return $env:JAVA_HOME }
+
+    $arcRoots = @(
+        (Join-Path $env:ProgramFiles 'Java'),
+        (Join-Path $env:ProgramFiles 'Eclipse Adoptium'),
+        (Join-Path $env:ProgramFiles 'Microsoft'),
+        (Join-Path $env:USERPROFILE '.jdks')
+    )
+    foreach ($arcRoot in $arcRoots) {
+        if (-not (Test-Path -LiteralPath $arcRoot -PathType Container)) { continue }
+        foreach ($arcCandidate in (Get-ChildItem -LiteralPath $arcRoot -Directory -Filter '*21*' |
+                Sort-Object Name -Descending)) {
+            if (Test-ArcJdk21 $arcCandidate.FullName) { return $arcCandidate.FullName }
+        }
+    }
+
+    throw 'Arc Transit requires JDK 21. Install it, or set ARC_JAVA_HOME to its installation directory.'
+}
+$arcJavaHome = Get-ArcJdk21
+Write-Output "ARC_JAVA_HOME=$arcJavaHome"
 if ($env:MVNW_VERBOSE -eq "true") {
   $VerbosePreference = "Continue"
 }
@@ -89,7 +129,7 @@ if (-not (Test-Path -Path $MAVEN_M2_PATH)) {
 }
 
 $MAVEN_WRAPPER_DISTS = $null
-if ((Get-Item $MAVEN_M2_PATH).Target[0] -eq $null) {
+if (-not (Get-Item $MAVEN_M2_PATH).Target) {
   $MAVEN_WRAPPER_DISTS = "$MAVEN_M2_PATH/wrapper/dists"
 } else {
   $MAVEN_WRAPPER_DISTS = (Get-Item $MAVEN_M2_PATH).Target[0] + "/wrapper/dists"

@@ -1,3 +1,5 @@
+> Historical manual record. Earlier statuses and expectations have not been reverified for the redeveloped application. Use tests/README.md and CODEX_PROGRESS.md for current procedures and evidence.
+
 # UI / Interface Test Results
 
 ## 1. Login Page

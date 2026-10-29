@@ -251,7 +251,7 @@ public class MainLayout extends AppLayout {
 
             navigation.addItem(
                     new SideNavItem(
-                            "Live Fleet Monitor",
+                            "Fleet Availability",
                             "fleet",
                             VaadinIcon.BUS.create()
                     )
@@ -272,6 +272,11 @@ public class MainLayout extends AppLayout {
                             VaadinIcon.MAP_MARKER.create()
                     )
             );
+        }
+
+        if (isStaff) {
+            navigation.addItem(new SideNavItem("Operational Reports", "reports",
+                    VaadinIcon.CLIPBOARD_TEXT.create()));
         }
 
         // system administrator only
@@ -319,8 +324,13 @@ public class MainLayout extends AppLayout {
             );
         }
 
+        if (isAdmin) {
+            navigation.addItem(new SideNavItem("Audit Log", "audit", VaadinIcon.RECORDS.create()));
+        }
+
         Scroller scroller =
-                new Scroller(navigation);
+                new Scroller(new ModuleNavigation(navigation,
+                        authentication == null ? "anonymous" : authentication.getName()));
 
         scroller.setClassName(
                 LumoUtility.Padding.SMALL

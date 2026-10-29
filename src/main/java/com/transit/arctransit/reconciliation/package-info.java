@@ -12,6 +12,6 @@ Source: Spring Modulith — https://docs.spring.io/spring-modulith/reference/fun
 
 @org.springframework.modulith.ApplicationModule(
         displayName = "Reconciliation",
-        allowedDependencies = {"fleet", "driver", "route", "dispatch", "incident", "maintenance", "audit", "common"}
+        allowedDependencies = {"fleet", "driver", "route", "dispatch", "incident", "maintenance", "audit", "common", "reporting"}
 )
 package com.transit.arctransit.reconciliation;

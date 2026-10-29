@@ -10,6 +10,16 @@ import java.util.List;
 public interface IncidentRepository
         extends JpaRepository<Incident, Long> {
 
+    @org.springframework.data.jpa.repository.Query("""
+            SELECT incident FROM Incident incident WHERE incident.archivedAt IS NOT NULL
+              AND (:filter = '' OR lower(incident.title) LIKE lower(concat('%', :filter, '%'))
+                OR lower(coalesce(incident.description, '')) LIKE lower(concat('%', :filter, '%'))
+                OR lower(coalesce(incident.resolutionNotes, '')) LIKE lower(concat('%', :filter, '%'))
+                OR cast(incident.id AS string) = :filter)
+            """)
+    Page<Incident> searchArchived(@org.springframework.data.repository.query.Param("filter") String filter,
+            Pageable pageable);
+
     // return latest ten incidents
     List<Incident> findTop10ByOrderByReportedAtDesc();
 

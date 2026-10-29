@@ -1,7 +1,11 @@
 package com.transit.arctransit.analytics.ui;
 
+import com.transit.arctransit.common.ui.RefreshButton;
 // common UI
+import com.transit.arctransit.common.ui.FormInputs;
+
 import com.transit.arctransit.common.ui.MainLayout;
+import com.transit.arctransit.common.ui.OperationsReferenceMap;
 
 // dispatch
 import com.transit.arctransit.dispatch.DispatchService;
@@ -9,6 +13,9 @@ import com.transit.arctransit.dispatch.DispatchService;
 // fleet
 import com.transit.arctransit.fleet.FleetManagementService;
 import com.transit.arctransit.fleet.FleetUnitSummaryView;
+import com.transit.arctransit.fleet.FleetUnitQuery;
+import com.transit.arctransit.route.RouteQuery;
+import com.transit.arctransit.reporting.OperationalReportService;
 
 // incident
 import com.transit.arctransit.incident.IncidentManagementService;
@@ -36,6 +43,7 @@ import com.vaadin.flow.component.html.IFrame;
 import com.vaadin.flow.component.html.Paragraph;
 import com.vaadin.flow.component.html.Span;
 import com.vaadin.flow.component.grid.Grid;
+import com.transit.arctransit.common.ui.DataGrids;
 import com.vaadin.flow.component.icon.VaadinIcon;
 import com.vaadin.flow.component.notification.Notification;
 import com.vaadin.flow.component.notification.NotificationVariant;
@@ -87,6 +95,7 @@ public class DashboardView
     private final DispatchService dispatchService;
     private final MaintenanceService maintenanceService;
     private final ReconciliationService reconciliationService;
+    private final OperationalReportService reportService;
 
     // summary cards
     private Div exceptionsCard;
@@ -106,7 +115,8 @@ public class DashboardView
             IncidentManagementService incidentService,
             DispatchService dispatchService,
             MaintenanceService maintenanceService,
-            ReconciliationService reconciliationService) {
+            ReconciliationService reconciliationService,
+            OperationalReportService reportService) {
 
         this.fleetService = fleetService;
         this.routeService = routeService;
@@ -114,6 +124,7 @@ public class DashboardView
         this.dispatchService = dispatchService;
         this.maintenanceService = maintenanceService;
         this.reconciliationService = reconciliationService;
+        this.reportService = reportService;
 
         configureView();
         configureSummaryCards();
@@ -162,37 +173,12 @@ public class DashboardView
                         "0"
                 );
 
-        exceptionsCard.addClickListener(
-                event ->
-                        UI.getCurrent()
-                                .navigate(
-                                        "exceptions"
-                                )
-        );
-
-        staleCard.addClickListener(
-                event ->
-                        UI.getCurrent()
-                                .navigate(
-                                        "exceptions"
-                                )
-        );
-
-        maintenanceCard.addClickListener(
-                event ->
-                        UI.getCurrent()
-                                .navigate(
-                                        "maintenance"
-                                )
-        );
-
-        incidentsCard.addClickListener(
-                event ->
-                        UI.getCurrent()
-                                .navigate(
-                                        "incidents"
-                                )
-        );
+        staleCard.addClickListener(event -> UI.getCurrent().navigate("reports"));
+        if (isSystemAdministrator()) {
+            exceptionsCard.addClickListener(event -> UI.getCurrent().navigate("exceptions"));
+            maintenanceCard.addClickListener(event -> UI.getCurrent().navigate("maintenance"));
+            incidentsCard.addClickListener(event -> UI.getCurrent().navigate("incidents"));
+        }
 
         cards.add(
                 exceptionsCard,
@@ -234,42 +220,7 @@ public class DashboardView
     // map and alert section
     private SplitLayout createMapSection() {
 
-        Div mapContainer =
-                new Div();
-
-        mapContainer.setSizeFull();
-
-        mapContainer.getStyle()
-                .set(
-                        "overflow",
-                        "hidden"
-                );
-
-        IFrame map =
-                new IFrame(
-                        "https://www.openstreetmap.org/"
-                                + "export/embed.html?"
-                                + "bbox=120.7,14.1,121.1,14.5"
-                                + "&layer=mapnik"
-                );
-
-        map.setWidthFull();
-
-        map.getStyle()
-                .set(
-                        "height",
-                        "calc(100% + 45px)"
-                )
-                .set(
-                        "border",
-                        "none"
-                )
-                .set(
-                        "margin-bottom",
-                        "-45px"
-                );
-
-        mapContainer.add(map);
+        OperationsReferenceMap mapContainer = new OperationsReferenceMap();
 
         VerticalLayout alerts =
                 createAlertSidebar();
@@ -331,8 +282,7 @@ public class DashboardView
 
         sidebar.add(
                 new Paragraph(
-                        "Live exception counts and system metrics "
-                                + "updated on reconciliation."
+                        "Recorded exceptions are updated when reconciliation runs."
                 )
         );
 
@@ -356,7 +306,12 @@ public class DashboardView
 
         HorizontalLayout header =
                 new HorizontalLayout(
-                        searchField
+                        searchField,
+                        new RefreshButton(() -> {
+                            routeGrid.getDataProvider().refreshAll();
+                            fleetGrid.getDataProvider().refreshAll();
+                            refreshCards();
+                        })
                 );
 
         header.setWidthFull();
@@ -376,7 +331,7 @@ public class DashboardView
         );
 
         tabs.add(
-                new Tab("Fleet Condition Monitor"),
+                new Tab("Recorded Fleet Availability"),
                 fleetGrid
         );
 
@@ -413,7 +368,7 @@ public class DashboardView
     private Grid<RouteSummaryView> createRouteGrid() {
 
         Grid<RouteSummaryView> grid =
-                new Grid<>();
+                DataGrids.create();
 
         grid.setSizeFull();
 
@@ -432,14 +387,7 @@ public class DashboardView
         )
         .setHeader("# Stops");
 
-        grid.setItems(
-                routeService
-                        .searchRoutes(
-                                null,
-                                PageRequest.of(0, 50)
-                        )
-                        .getContent()
-        );
+        refreshRouteSearch(grid, "");
 
         grid.addSelectionListener(
                 event ->
@@ -462,7 +410,7 @@ public class DashboardView
     private Grid<FleetUnitSummaryView> createFleetGrid() {
 
         Grid<FleetUnitSummaryView> grid =
-                new Grid<>();
+                DataGrids.create();
 
         grid.setSizeFull();
 
@@ -476,18 +424,11 @@ public class DashboardView
         .setHeader("Unit (Plate)");
 
         grid.addColumn(
-                FleetUnitSummaryView::operationalStatus
+                FleetUnitSummaryView::availability
         )
         .setHeader("Status");
 
-        grid.setItems(
-                fleetService
-                        .searchUnits(
-                                null,
-                                PageRequest.of(0, 50)
-                        )
-                        .getContent()
-        );
+        refreshFleetSearch(grid, "");
 
         grid.addSelectionListener(
                 event ->
@@ -517,7 +458,7 @@ public class DashboardView
             Grid<FleetUnitSummaryView> fleetGrid) {
 
         TextField searchField =
-                new TextField();
+                FormInputs.text(new TextField(), 200);
 
         searchField.setPlaceholder(
                 "Search routes and buses..."
@@ -563,29 +504,8 @@ public class DashboardView
             Grid<RouteSummaryView> grid,
             String query) {
 
-        List<RouteSummaryView> routes =
-                routeService
-                        .searchRoutes(
-                                null,
-                                PageRequest.of(0, 50)
-                        )
-                        .getContent();
-
-        if (!query.isBlank()) {
-
-            routes = routes.stream()
-                    .filter(route ->
-                            route.routeCode()
-                                    .toLowerCase()
-                                    .contains(query)
-                                    || route.routeName()
-                                            .toLowerCase()
-                                            .contains(query)
-                    )
-                    .toList();
-        }
-
-        grid.setItems(routes);
+        grid.setItemsPageable(pageable -> routeService
+                .searchRoutes(new RouteQuery(query, "ACTIVE"), pageable).getContent());
     }
 
     // fleet search
@@ -593,29 +513,8 @@ public class DashboardView
             Grid<FleetUnitSummaryView> grid,
             String query) {
 
-        List<FleetUnitSummaryView> fleets =
-                fleetService
-                        .searchUnits(
-                                null,
-                                PageRequest.of(0, 50)
-                        )
-                        .getContent();
-
-        if (!query.isBlank()) {
-
-            fleets = fleets.stream()
-                    .filter(unit ->
-                            unit.unitNumber()
-                                    .toLowerCase()
-                                    .contains(query)
-                                    || unit.plateNumber()
-                                            .toLowerCase()
-                                            .contains(query)
-                    )
-                    .toList();
-        }
-
-        grid.setItems(fleets);
+        grid.setItemsPageable(pageable -> fleetService
+                .searchUnits(new FleetUnitQuery(query, null), pageable).getContent());
     }
 
     // refresh dashboard metrics
@@ -625,12 +524,7 @@ public class DashboardView
                 reconciliationService
                         .getExceptionSummary();
 
-        long staleCount =
-                summary.countByType()
-                        .getOrDefault(
-                                "STALE_STATE",
-                                0L
-                        );
+        long staleCount = reportService.countStaleReports();
 
         updateCardValue(
                 staleCard,
@@ -646,21 +540,24 @@ public class DashboardView
                 )
         );
 
-        long blockedUnits =
-                fleetService
-                        .searchUnits(
-                                null,
-                                PageRequest.of(0, 1000)
-                        )
-                        .getContent()
-                        .stream()
-                        .filter(unit ->
-                                "UNDER_MAINTENANCE"
-                                        .equals(
-                                                unit.operationalStatus()
-                                        )
-                        )
-                        .count();
+        java.util.Set<Long> blockedUnitIds = new java.util.HashSet<>();
+        int pageNumber = 0;
+        org.springframework.data.domain.Page<com.transit.arctransit.maintenance.MaintenanceRecordView> maintenancePage;
+        do {
+            maintenancePage = maintenanceService.searchRecords(PageRequest.of(pageNumber++, 500));
+            maintenancePage.getContent().stream()
+                    .filter(record -> java.util.Set.of("REQUESTED", "APPROVED", "IN_PROGRESS")
+                            .contains(record.maintenanceStatus()))
+                    .forEach(record -> blockedUnitIds.add(record.fleetUnitId()));
+        } while (maintenancePage.hasNext());
+        pageNumber = 0;
+        org.springframework.data.domain.Page<FleetUnitSummaryView> fleetPage;
+        do {
+            fleetPage = fleetService.searchUnits(null, PageRequest.of(pageNumber++, 500));
+            fleetPage.getContent().stream().filter(unit -> "MAINTENANCE".equals(unit.availability()))
+                    .forEach(unit -> blockedUnitIds.add(unit.id()));
+        } while (fleetPage.hasNext());
+        long blockedUnits = blockedUnitIds.size();
 
         updateCardValue(
                 maintenanceCard,
@@ -695,7 +592,7 @@ public class DashboardView
         } catch (RuntimeException exception) {
 
             showError(
-                    exception.getMessage()
+                    com.transit.arctransit.common.ui.ApplicationErrors.message(exception)
             );
         }
     }

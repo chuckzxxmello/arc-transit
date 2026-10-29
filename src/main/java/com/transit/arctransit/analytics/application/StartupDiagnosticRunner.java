@@ -29,6 +29,7 @@ import java.util.List;
 // startup diagnostic runner
 
 @Component
+@org.springframework.context.annotation.Profile("dev")
 public class StartupDiagnosticRunner
         implements ApplicationRunner {
 
@@ -80,7 +81,7 @@ public class StartupDiagnosticRunner
             verifyDispatch();
 
             log.info(
-                    "===== ALL MODULES VERIFIED SUCCESSFULLY ====="
+                    "===== STARTUP DATA QUERIES COMPLETED ====="
             );
 
         } catch (Exception exception) {
@@ -129,7 +130,7 @@ public class StartupDiagnosticRunner
                         .getTotalElements();
 
         log.info(
-                "[Fleet]    Active fleet units: {}",
+                "[Fleet]    Non-archived fleet records: {}",
                 count
         );
     }
@@ -146,7 +147,7 @@ public class StartupDiagnosticRunner
                         .getTotalElements();
 
         log.info(
-                "[Driver]   Active drivers: {}",
+                "[Driver]   Non-archived driver records: {}",
                 count
         );
     }
@@ -163,7 +164,7 @@ public class StartupDiagnosticRunner
                         .getTotalElements();
 
         log.info(
-                "[Route]    Active routes: {}",
+                "[Route]    Non-archived route records: {}",
                 count
         );
     }

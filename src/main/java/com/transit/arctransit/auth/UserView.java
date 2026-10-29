@@ -8,5 +8,7 @@ public record UserView(
         String displayName,
         String email,
         String accountStatus,
-        Set<String> roles
+        Set<String> roles,
+        Long id,
+        Long version
 ) {}

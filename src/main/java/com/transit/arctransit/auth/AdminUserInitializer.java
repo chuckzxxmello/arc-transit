@@ -4,11 +4,9 @@ package com.transit.arctransit.auth;
 import com.transit.arctransit.auth.domain.AppUser;
 import com.transit.arctransit.auth.domain.AppUserRepository;
 
-// import jdbc and logger
+// import jdbc
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.transaction.annotation.Transactional;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 
 // import springframework beans
 import org.springframework.beans.factory.annotation.Value;
@@ -20,10 +18,7 @@ import org.springframework.stereotype.Component;
 @Component
 public class AdminUserInitializer implements CommandLineRunner {
 	
-	private static final Logger log = 
-			LoggerFactory.getLogger(AdminUserInitializer.class);
-	
-	private static final String SYSTEM_ADMIN_ROLE = "SYSTEM_ADMIN";
+    private static final String SYSTEM_ADMIN_ROLE = "SYSTEM_ADMIN";
 
     private final AppUserRepository userRepository;
     private final PasswordEncoder passwordEncoder;
@@ -41,7 +36,7 @@ public class AdminUserInitializer implements CommandLineRunner {
     	this.userRepository = userRepository;
 		this.passwordEncoder = passwordEncoder;
 		this.jdbcTemplate = jdbcTemplate;
-		this.adminUsername = adminUsername;
+		this.adminUsername = adminUsername.trim().toLowerCase(java.util.Locale.ROOT);
 		this.adminPassword = adminPassword;
     		}
 
@@ -49,14 +44,21 @@ public class AdminUserInitializer implements CommandLineRunner {
     @Transactional
     public void run(String... args) {
     	
-    	// Add a admin user after the application has started
-        userRepository.findByUsername(adminUsername)
-        										.ifPresentOrElse(
-										        			this::ensureSystemAdminRole,
-										        			this::createAdmin
-        										);
+        if (userRepository.findByUsername(adminUsername).isPresent()) {
+            return;
+        }
+        Boolean administratorExists = jdbcTemplate.queryForObject(
+                "SELECT EXISTS (SELECT 1 FROM arc.user_roles WHERE role_code = ?)",
+                Boolean.class, SYSTEM_ADMIN_ROLE);
+        if (Boolean.TRUE.equals(administratorExists)) {
+            return;
+        }
+        if (adminPassword == null || adminPassword.isBlank()) {
+            throw new IllegalStateException("An administrator bootstrap password is required.");
+        }
+        createAdmin();
     }
-    
+
     private void createAdmin() {
     	AppUser admin = new AppUser(
 				    			adminUsername,
@@ -68,36 +70,6 @@ public class AdminUserInitializer implements CommandLineRunner {
     	assignSystemAdminRole(admin.getId());
     }
 
-	private void ensureSystemAdminRole(AppUser admin) {
-		if(!hasSystemAdminRole(admin.getId())) {
-			assignSystemAdminRole(admin.getId());
-			
-			log.info(
-					"Added SYSTEM_ADMIN role to existing user '{}'.",
-																adminUsername
-			);
-			
-		}
-	}
-
-	private boolean hasSystemAdminRole(Long userId) {
-		
-		Boolean exists = jdbcTemplate.queryForObject(
-													"""
-													SELECT EXISTS (
-														SELECT 1
-														FROM arc.user_roles
-														WHERE user_id = ?
-														AND role_code = ?
-													)
-													""",
-													Boolean.class,
-													userId,
-													SYSTEM_ADMIN_ROLE
-		);
-		return Boolean.TRUE.equals(exists);
-	}
-	
 	private void assignSystemAdminRole(Long userId) {
 		jdbcTemplate.update(
 						"""
