@@ -27,21 +27,17 @@ import org.springframework.stereotype.Component;
 import java.util.List;
 
 // startup diagnostic runner
-
 @Component
 @org.springframework.context.annotation.Profile("dev")
-public class StartupDiagnosticRunner
-        implements ApplicationRunner {
+public class StartupDiagnosticRunner implements ApplicationRunner {
 
     // logger
-    private static final Logger log =
-            LoggerFactory.getLogger(
-                    StartupDiagnosticRunner.class
-            );
+    private static final Logger log = LoggerFactory.getLogger(
+        StartupDiagnosticRunner.class
+    );
 
     // diagnostic authority
-    private static final String SYSTEM_ADMIN_AUTHORITY =
-            "ROLE_SYSTEM_ADMIN";
+    private static final String SYSTEM_ADMIN_AUTHORITY = "ROLE_SYSTEM_ADMIN";
 
     // dependencies
     private final FleetManagementService fleetService;
@@ -51,147 +47,102 @@ public class StartupDiagnosticRunner
 
     // constructor
     public StartupDiagnosticRunner(
-            FleetManagementService fleetService,
-            DriverManagementService driverService,
-            RouteManagementService routeService,
-            DispatchService dispatchService) {
-
-        this.fleetService = fleetService;
-        this.driverService = driverService;
-        this.routeService = routeService;
-        this.dispatchService = dispatchService;
+                FleetManagementService fleetService,
+                DriverManagementService driverService,
+                RouteManagementService routeService,
+                DispatchService dispatchService
+    ) {
+        
+    this.fleetService = fleetService;
+    this.driverService = driverService;
+    this.routeService = routeService;
+    this.dispatchService = dispatchService;
     }
 
     // run diagnostics after application startup
     @Override
-    public void run(
-            ApplicationArguments args) {
+    public void run(ApplicationArguments args) {
 
-        log.info(
-                "===== ARC TRANSIT STARTUP DIAGNOSTIC ====="
-        );
+    log.info("Startup Diagnostic");
+    
+            installDiagnosticAuthentication();
 
-        installDiagnosticAuthentication();
-
-        try {
-
+    try {
             verifyFleet();
             verifyDrivers();
             verifyRoutes();
             verifyDispatch();
+                    log.info("Startup data query completed.");
 
-            log.info(
-                    "===== STARTUP DATA QUERIES COMPLETED ====="
-            );
+    } catch (Exception exception) {
+                    log.error("Startup diagnostic failed", exception);
 
-        } catch (Exception exception) {
-
-            log.error(
-                    "===== STARTUP DIAGNOSTIC FAILED =====",
-                    exception
-            );
-
-        } finally {
-
-            SecurityContextHolder.clearContext();
+    } finally {
+        
+        SecurityContextHolder.clearContext();
         }
     }
 
-    // install temporary admin authority
+    // create a temporary admin
     private void installDiagnosticAuthentication() {
-
-        var authentication =
-                new UsernamePasswordAuthenticationToken(
+    var authentication = new UsernamePasswordAuthenticationToken(
                         "startup-diagnostic",
                         null,
-                        List.of(
-                                new SimpleGrantedAuthority(
-                                        SYSTEM_ADMIN_AUTHORITY
-                                )
-                        )
-                );
+                        List.of(new SimpleGrantedAuthority(SYSTEM_ADMIN_AUTHORITY))
+    );
 
         SecurityContextHolder
-                .getContext()
-                .setAuthentication(
-                        authentication
-                );
+                    .getContext()
+                    .setAuthentication(authentication);
     }
 
     // verify Fleet module
     private void verifyFleet() {
-
-        long count =
-                fleetService
+    long count = fleetService
                         .searchUnits(
                                 null,
                                 PageRequest.of(0, 1)
                         )
                         .getTotalElements();
 
-        log.info(
-                "[Fleet]    Non-archived fleet records: {}",
-                count
-        );
+        log.info("[Fleet] Total fleet records: {}", count);
     }
 
     // verify Driver module
     private void verifyDrivers() {
-
-        long count =
-                driverService
+    long count = driverService
                         .searchDrivers(
                                 null,
                                 PageRequest.of(0, 1)
                         )
                         .getTotalElements();
 
-        log.info(
-                "[Driver]   Non-archived driver records: {}",
-                count
-        );
+        log.info("[Driver] Total active driver records: {}", count);
     }
 
     // verify Route module
     private void verifyRoutes() {
-
-        long count =
-                routeService
+    long count = routeService
                         .searchRoutes(
                                 null,
                                 PageRequest.of(0, 1)
                         )
                         .getTotalElements();
 
-        log.info(
-                "[Route]    Non-archived route records: {}",
-                count
-        );
+        log.info("[Route] Total active route records: {}", count);
     }
 
     // verify Dispatch module
     private void verifyDispatch() {
+    long completedTrips = dispatchService.countCompletedTrips();
+    long totalAssignments = dispatchService
+                                .searchAssignments(
+                                        null,
+                                        PageRequest.of(0, 1)
+                                )
+                                .getTotalElements();
 
-        long completedTrips =
-                dispatchService
-                        .countCompletedTrips();
-
-        long totalAssignments =
-                dispatchService
-                        .searchAssignments(
-                                null,
-                                PageRequest.of(0, 1)
-                        )
-                        .getTotalElements();
-
-        log.info(
-                "[Dispatch] Completed trips: {}",
-                completedTrips
-        );
-
-        log.info(
-                "[Dispatch] Total assignments: {}",
-                totalAssignments
-        );
+        log.info("[Dispatch] Completed trips: {}", completedTrips);
+        log.info("[Dispatch] Total assignments: {}", totalAssignments);
     }
 }

@@ -1,10 +1,33 @@
 # Arc Transit
+### Transit Operations Coordination and Operational-State Reconciliation Platform
 
-Transit Operations Coordination and Operational-State Reconciliation Platform
+![image](docs\arc-ui-1.png)
 
-Arc Transit is a staff-facing web application for maintaining bus, driver, route, dispatch, incident, maintenance, and operational-report records. It helps staff coordinate work, check whether records agree, and review how recorded conditions changed over time. Human-entered information is a primary source of its operational state.
+**Arc Transit** is a web-based application for maintaining bus, driver, route, dispatch, incident, maintenance, and operational-report records. Just like other Transportation and Fleet Management systems, Arc Transit helps staff coordinate fleet, driver, routes and schedules with an additional features that includes reviewing whether records are linked and connected, review how recorded conditions changed over time, and assess exceptions and conflicts regarding transportation issues. With Human-entered information as a primary source of its operational data.
 
-Developed by Chuckz Española. This project overview is an editable documentation draft, revised on 28 October 2026. It follows the latest supplied project proposal and describes the current repository where implementation details are given. Proposed improvements and evaluation targets are identified separately from existing behavior and recorded test results.
+![image](docs/arc-ui-2.png)
+
+
+
+# Directories
+
+1. [problem statement](#problem-statement)
+2. [proposed solution](#proposed-solution)
+3. [project objectives](#project-objectives)
+4. [success criteria](#success-criteria)
+5. [requirements in detail](#requirements-in-detail)
+6. [user roles](#user-roles)
+7. [constraints](#constraints)
+8. [assumptions](#assumptions)
+9. [scope](#scope)
+
+# Additional
+
+1. [**detailed overview**](docs\arc-transit.md)
+2. [**progress tracking**](edit.md)
+3. [**what I'm still working at**](#what-im-still-working-at)
+4. [**additional features plan**](docs\additional-features.md)
+
 
 ## 1. Problem statement and proposed solution
 
@@ -22,19 +45,21 @@ The project addresses a narrower software problem: maintaining an understandable
 
 ### Proposed solution
 
-Arc Transit brings the related records into one application and applies explicit rules when staff change them. Its main design principles are:
+Arc Transit system proposes its leverage through bringing the related records into one application and applies explicit rules when staff change them.
 
-- Separate vehicle identity, recorded availability, and trip assignment.
-- Separate driver identity, employment status, qualification, availability, and assignment.
-- Keep route identity, effective-dated route definitions, reusable schedules, and individual dated assignments distinct.
-- Preserve important business changes alongside current state.
-- Record where operational information came from, who entered it, when it was recorded, and when the reported condition applied.
-- Block known invalid actions before saving and create review cases for contradictions found afterward.
-- Keep business history separate from the audit record of protected application actions.
+The main design principles are:
+
+→ Separate vehicle identity, recorded availability, and trip assignment.
+→ Separate driver identity, employment status, qualification, availability, and assignment.
+→ Keep route identity, effective-dated route definitions, reusable schedules, and individual dated assignments distinct.
+→ Preserve important business changes alongside current state.
+→ Record where operational information came from, who entered it, when it was recorded, and when the reported condition applied.
+→ Block known invalid actions before saving and create review cases for contradictions found afterward.
+→ Keep business history separate from the audit record of protected application actions.
 
 For example, a staff member records a radio report that a bus has a flat tire. The report retains its source and effective time and begins as unverified. It does not automatically change the bus's availability. Authorized personnel review the information and separately record the necessary incident, maintenance, availability, or dispatch action. Reconciliation can then identify defined inconsistencies among those records.
 
-Reconciliation means checking existing application records against explicit consistency rules. A case identifies the rule and affected records for human review. It does not determine which report describes physical reality or silently resolve an uncertain operational decision.
+For clarifying on how Reconciliation Engine works, it means checking existing application records against explicit consistency rules. A case identifies the rule and affected records for human review. It does not determine which report describes physical reality or silently resolve an uncertain operational decision.
 
 ## 2. Project objectives and success criteria
 
@@ -82,7 +107,7 @@ The supplied draft also contains these initial performance targets:
 
 The p95 value is the response time within which 95 percent of the measured requests finish. Before measuring, document the hardware, software versions, database size, browser or load tool, network conditions, test duration, and measurement boundaries. These draft targets may be revised with a recorded reason before final evaluation. Browser rendering, server execution, and database query time must be reported separately where they measure different parts of an action.
 
-### Current evidence and remaining work
+## What I'm still working at
 
 [CODEX_PROGRESS.md](CODEX_PROGRESS.md) records a successful production frontend and JAR build with 253 automated tests passing on 22 October 2026. It also records browser checks for selected features. Those results apply to the source and environment tested at that time; they do not establish that every manual check or performance target has passed.
 
@@ -95,6 +120,8 @@ This README revision was checked against source files and configuration. Applica
 ### Included scope
 
 Arc Transit represents one simulated or test organization, such as a Philippine bus operator or cooperative. It is intended for internal staff using a browser. The current application contains the following areas:
+
+![image](docs\arc-workflow.png)
 
 | Area | Included behavior |
 | --- | --- |
@@ -144,10 +171,12 @@ Performance, accessibility, privacy governance, retention periods, backup schedu
 
 The application currently has two roles. Drivers and passengers do not have a dedicated application role or client. A driver record is an operational record, not a staff login account.
 
-| User | Purpose | Current browser access |
-| --- | --- | --- |
+![image](app://a0ab5c7cebcf35584c2e488edc10c053b639/C:/projects/arc-transit/docs/arc-user-flow.png?1795334973820)
+
+| User                                  | Purpose                                                                                                       | Current browser access                                                                                                                   |
+| ------------------------------------- | ------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------- |
 | System administrator (`SYSTEM_ADMIN`) | Manage accounts and protected records, oversee operations, review reports and exceptions, and inspect history | All operational screens, Incident Management, Maintenance Management, Exception Queue, Archived Data, User Administration, and Audit Log |
-| Operations staff (`OPERATIONS_STAFF`) | Maintain routine resource information, create and update assignments, and submit received information | Dashboard Overview, Dispatch & Assignment, Fleet Availability, Driver Management, Route Schedule, and Operational Reports |
+| Operations staff (`OPERATIONS_STAFF`) | Maintain routine resource information, create and update assignments, and submit received information         | Dashboard Overview, Dispatch & Assignment, Fleet Availability, Driver Management, Route Schedule, and Operational Reports                |
 
 Both roles can use the ordinary resource and dispatch workflows exposed on their screens. Administrator-only actions include resource archival, report review and archival, account management, and protected archive actions. Service authorization also applies to individual actions; access to a screen is not permission to perform every possible operation.
 
@@ -161,36 +190,30 @@ Other project stakeholders include the developer and maintainer, people reviewin
 
 Arc Transit uses one Java application with internal business modules, commonly called a modular monolith. It is built and deployed as one unit, while application services separate responsibilities and control validation, authorization, and transactions.
 
-The normal application flow is:
+![image](docs\arc-system-architecture.png)
 
-```text
-Browser
-  -> Vaadin Flow
-  -> Spring Boot application services and Spring Modulith modules
-  -> Spring Data JPA / selected JDBC
-  -> PostgreSQL
-```
-
-The browser interface and application services share the same application. The staff interface does not require a separate public REST API. Internal module calls use published Java interfaces rather than internal HTTP services or direct access to another module's repositories.
-
-| Technology | Repository baseline and purpose |
-| --- | --- |
-| Java | JDK 21 for compilation and runtime |
-| Spring Boot | Version 4.1.0 declared in `pom.xml`; application runtime, configuration, and transactions |
-| Vaadin Flow | Vaadin 25.2.3 declared in `pom.xml`; Java-based browser interface and existing application design |
-| Spring Modulith | Version 2.1.0 declared in `pom.xml`; module organization and verification |
-| Spring Security | Authentication, BCrypt password hashing, protected navigation, service authorization, and session controls |
-| Spring Data JPA / JDBC | Relational persistence and selected explicit queries |
-| PostgreSQL | Version 17 in the Compose configuration; relational data, constraints, and transactions |
-| Flyway | Versioned schema migrations; Hibernate validates mappings rather than creating the schema |
-| Maven Wrapper | Project build, automated tests, and packaging |
-| Docker Compose | Local PostgreSQL and a separate application-plus-database deployment configuration |
-| Leaflet and external providers | Locally bundled Leaflet 1.9.4, OpenStreetMap road tiles, and Open-Meteo weather |
-| Sortable Layout | Vaadin add-on 3.0.1 for sidebar ordering |
+| Technology                     | Repository baseline and purpose                                                                            |
+| ------------------------------ | ---------------------------------------------------------------------------------------------------------- |
+| Java                           | JDK 21 for compilation and runtime                                                                         |
+| Spring Boot                    | Version 4.1.0 declared in `pom.xml`; application runtime, configuration, and transactions                  |
+| Vaadin Flow                    | Vaadin 25.2.3 declared in `pom.xml`; Java-based browser interface and existing application design          |
+| Spring Modulith                | Version 2.1.0 declared in `pom.xml`; module organization and verification                                  |
+| Spring Security                | Authentication, BCrypt password hashing, protected navigation, service authorization, and session controls |
+| Spring Data JPA / JDBC         | Relational persistence and selected explicit queries                                                       |
+| PostgreSQL                     | Version 17 in the Compose configuration; relational data, constraints, and transactions                    |
+| Flyway                         | Versioned schema migrations; Hibernate validates mappings rather than creating the schema                  |
+| Maven Wrapper                  | Project build, automated tests, and packaging                                                              |
+| Docker Compose                 | Local PostgreSQL and a separate application-plus-database deployment configuration                         |
+| Leaflet and external providers | Locally bundled Leaflet 1.9.4, OpenStreetMap road tiles, and Open-Meteo weather                            |
+| Sortable Layout                | Vaadin add-on 3.0.1 for sidebar ordering                                                                   |
 
 Declared dependency versions describe the checked repository configuration. They are not a recommendation to upgrade or a claim about the latest vendor release.
 
 The business modules are `auth`, `fleet`, `driver`, `route`, `dispatch`, `reporting`, `incident`, `maintenance`, `reconciliation`, `analytics`, and `audit`. Shared interface helpers and validation support remain under `common`.
+
+### Deployment Architecture
+![image](docs\arc-deployment-architecture.png)
+
 
 ### Feasibility and tradeoffs
 

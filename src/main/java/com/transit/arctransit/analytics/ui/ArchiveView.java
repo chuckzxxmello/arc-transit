@@ -68,14 +68,14 @@ import org.springframework.data.domain.Sort;
 // java
 import java.util.List;
 
-// archive management view
-@Route(
-        value = "archive",
-        layout = MainLayout.class
-)
-@PageTitle("Archived Data")
-@RolesAllowed("SYSTEM_ADMIN")
-public class ArchiveView extends VerticalLayout {
+    // archive management view
+    @Route(
+            value = "archive",
+            layout = MainLayout.class
+    )
+    @PageTitle("Archived Data")
+    @RolesAllowed("SYSTEM_ADMIN")
+    public class ArchiveView extends VerticalLayout {
 
     // dependencies
     private final FleetManagementService fleetService;
@@ -114,24 +114,23 @@ public class ArchiveView extends VerticalLayout {
             MaintenanceService maintenanceService,
             OperationalReportService reportService) {
 
-        this.fleetService = fleetService;
-        this.driverService = driverService;
-        this.routeService = routeService;
-        this.dispatchService = dispatchService;
-        this.userService = userService;
-        this.incidentService = incidentService;
-        this.maintenanceService = maintenanceService;
-        this.reportService = reportService;
+    this.fleetService = fleetService;
+    this.driverService = driverService;
+    this.routeService = routeService;
+    this.dispatchService = dispatchService;
+    this.userService = userService;
+    this.incidentService = incidentService;
+    this.maintenanceService = maintenanceService;
+    this.reportService = reportService;
 
         configureView();
         configureArchiveTabs();
-
+        
         refreshAll();
     }
 
     // view configuration
     private void configureView() {
-
         setSizeFull();
         setPadding(false);
         setSpacing(false);
@@ -139,10 +138,8 @@ public class ArchiveView extends VerticalLayout {
 
     // archive tabs
     private void configureArchiveTabs() {
-
-        TabSheet tabSheet =
-                new TabSheet();
-
+    
+    TabSheet tabSheet = new TabSheet();
         tabSheet.setSizeFull();
 
         configureFleetGrid();
@@ -153,38 +150,21 @@ public class ArchiveView extends VerticalLayout {
         configureCompletedWorkGrids();
         configureReportGrid();
 
-        tabSheet.add(
-                new Tab("Archived Buses"),
-                fleetGrid
-        );
-
-        tabSheet.add(
-                new Tab("Archived Drivers"),
-                driverGrid
-        );
-
-        tabSheet.add(
-                new Tab("Archived Routes"),
-                routeGrid
-        );
-
-        tabSheet.add(
-                new Tab("Archived Dispatches"),
-                dispatchGrid
-        );
+        // configure Archive tabs here
+        tabSheet.add(new Tab("Archived Buses"), fleetGrid);
+        tabSheet.add(new Tab("Archived Drivers"), driverGrid);
+        tabSheet.add(new Tab("Archived Routes"), routeGrid);
+        tabSheet.add(new Tab("Archived Dispatch Assignments"), dispatchGrid);
         tabSheet.add(new Tab("Archived Users"), userGrid);
         tabSheet.add(new Tab("Archived Maintenance"), maintenanceGrid);
         tabSheet.add(new Tab("Archived Incidents"), incidentGrid);
         tabSheet.add(new Tab("Archived Operational Reports"), reportGrid);
 
-        HorizontalLayout header =
-                createHeader();
-
-        VerticalLayout primaryContent =
-                new VerticalLayout(
-                        header,
-                        tabSheet
-                );
+    HorizontalLayout header = createHeader();
+    VerticalLayout primaryContent = new VerticalLayout(
+                header,
+                tabSheet
+    );
 
         primaryContent.setSizeFull();
         primaryContent.setPadding(false);
@@ -196,61 +176,45 @@ public class ArchiveView extends VerticalLayout {
 
     // archive header
     private HorizontalLayout createHeader() {
+        H2 title = new H2("Archived Data");
+                    title.getStyle().set("margin", "0");
 
-        H2 title =
-                new H2("Archived Data");
-
-        title.getStyle()
-                .set("margin", "0");
-
-        TextField searchField =
-                FormInputs.text(new TextField(), 200);
-
-        searchField.setPlaceholder(
-                "Search current archive page..."
-        );
-
-        searchField.setPrefixComponent(
-                VaadinIcon.SEARCH.create()
-        );
-
-        searchField.setClearButtonVisible(true);
-
-        searchField.setValueChangeMode(
-                ValueChangeMode.LAZY
-        );
+        // text field for search
+        TextField searchField = FormInputs.text(new TextField(), 200);
+                searchField.setPlaceholder("Search current record...");
+                searchField.setPrefixComponent(VaadinIcon.SEARCH.create());
+        
+                searchField.setClearButtonVisible(true);
+        
+                searchField.setValueChangeMode(
+                    ValueChangeMode.LAZY
+                );
 
         searchField.addValueChangeListener(event -> {
+            currentSearchFilter = normalizeSearchFilter(event.getValue());
 
-            currentSearchFilter =
-                    normalizeSearchFilter(
-                            event.getValue()
-                    );
-
-            refreshAll();
+                refreshAll();
         });
 
-        HorizontalLayout header =
-                new HorizontalLayout(
+        // horizontal layout
+        HorizontalLayout header = new HorizontalLayout(
                         title,
                         new HorizontalLayout(searchField, new RefreshButton(this::refreshAll))
                 );
 
-        header.setWidthFull();
-
-        header.setPadding(true);
-
-        header.setJustifyContentMode(
-                FlexComponent.JustifyContentMode.BETWEEN
-        );
-
-        header.setDefaultVerticalComponentAlignment(
-                FlexComponent.Alignment.CENTER
-        );
+                header.setWidthFull();
+                header.setPadding(true);
+                header.setJustifyContentMode(
+                        FlexComponent.JustifyContentMode.BETWEEN
+                );
+                header.setDefaultVerticalComponentAlignment(
+                        FlexComponent.Alignment.CENTER
+                );
 
         return header;
     }
 
+    // TODO
     private void configureCompletedWorkGrids() {
         maintenanceGrid.setSizeFull();
         maintenanceGrid.addColumn(MaintenanceRecordView::id).setHeader("Maintenance Number");
@@ -430,125 +394,99 @@ public class ArchiveView extends VerticalLayout {
         });
     }
 
-    // fleet grid
+    // configure archived fleet grid
     private void configureFleetGrid() {
 
         fleetGrid.setSizeFull();
-
-        fleetGrid.addColumn(
-                FleetUnitSummaryView::unitNumber
-        )
-        .setHeader("Unit");
-
-        fleetGrid.addColumn(
-                FleetUnitSummaryView::plateNumber
-        )
-        .setHeader("Plate");
-
-        fleetGrid.addColumn(
-                FleetUnitSummaryView::operationalStatus
-        )
-        .setHeader("Status");
-
+        
+        fleetGrid.addColumn(FleetUnitSummaryView::unitNumber)
+                    .setHeader("Unit No.");
+        
+        fleetGrid.addColumn(FleetUnitSummaryView::plateNumber)
+                    .setHeader("Plate No.");
+        
+        fleetGrid.addColumn(FleetUnitSummaryView::operationalStatus)
+                    .setHeader("Status");
+        
+        // fleet unit action button components
         fleetGrid.addComponentColumn(
-                unit ->
-                        createActionButtons(
-                                "Fleet Unit "
-                                        + unit.unitNumber(),
-                                () -> {
-                                    fleetService
-                                            .hardDeleteUnit(
-                                                    unit.id()
-                                            );
-
-                                    refreshFleet();
-                                },
-                                () -> {
-                                    fleetService
-                                            .unarchiveUnit(
-                                                    unit.id()
-                                            );
-
-                                    refreshFleet();
-                                }
-                        )
+                unit -> createActionButtons(
+                        "Fleet Unit " + unit.unitNumber(),
+                () -> {
+                    fleetService.hardDeleteUnit(unit.id());
+                    refreshFleet();
+                },
+                () -> {
+                    fleetService.unarchiveUnit(unit.id());
+                    refreshFleet();
+                }
+                )
         )
         .setHeader("Actions");
 
+        // double click to view unit details
         fleetGrid.addItemDoubleClickListener(event -> {
-            var unit = event.getItem();
-            showDetails(
-                                                "Archived Bus",
-                                                """
-                                                Unit: %s
-                                                Plate: %s
-                                                Status: %s
-                                                """.formatted(
-                                                        unit.unitNumber(),
-                                                        unit.plateNumber(),
-                                                        unit.operationalStatus()
-                                                )
-                                        );
+        var unit = event.getItem();
+        
+            showDetails("Archived Bus",
+                            """
+                            Unit: %s
+                            Plate: %s
+                            Status: %s
+                            """
+                                .formatted(
+                                    unit.unitNumber(),
+                                    unit.plateNumber(),
+                                    unit.operationalStatus()
+                                )
+            );
         });
     }
 
-    // driver grid
+    // configure archived driver grid
     private void configureDriverGrid() {
 
         driverGrid.setSizeFull();
 
-        driverGrid.addColumn(
-                DriverSummaryView::employeeNumber
-        )
-        .setHeader("Employee #");
+        driverGrid.addColumn(DriverSummaryView::employeeNumber)
+                    .setHeader("Employee No.");
 
-        driverGrid.addColumn(
-                DriverSummaryView::fullName
-        )
-        .setHeader("Name");
+        driverGrid.addColumn(DriverSummaryView::fullName)
+                    .setHeader("Name");
 
-        driverGrid.addColumn(
-                DriverSummaryView::licenseNumber
-        )
-        .setHeader("License");
-
+        driverGrid.addColumn(DriverSummaryView::licenseNumber)
+                    .setHeader("License No. ");
+        
+        // driver action button components
         driverGrid.addComponentColumn(
-                driver ->
-                        createActionButtons(
-                                "Driver "
-                                        + driver.employeeNumber(),
-                                () -> {
-                                    driverService
-                                            .hardDeleteDriver(
-                                                    driver.id()
-                                            );
-
-                                    refreshDrivers();
-                                },
-                                () -> {
-                                    driverService
-                                            .unarchiveDriver(
-                                                    driver.id()
-                                            );
-
-                                    refreshDrivers();
-                                }
-                        )
+                driver -> createActionButtons(
+                            "Driver " + driver.employeeNumber(),
+                () -> {
+                    driverService.hardDeleteDriver(driver.id());
+                    refreshDrivers();
+                },
+                () -> {
+                    driverService.unarchiveDriver(driver.id());
+                    refreshDrivers();
+                }
+                )
         )
         .setHeader("Actions");
 
+        // double click to view driver details
         driverGrid.addItemDoubleClickListener(event -> {
-            var driver = event.getItem();
-            showDetails(
-                                                "Archived Driver",
-                                                """
-                                                Name: %s
-                                                License: %s
-                                                """.formatted(
-                                                        driver.fullName(),
-                                                        driver.licenseNumber()
-                                                )
-                                        );
+        var driver = event.getItem();
+        
+            showDetails("Archived Driver",
+                            """
+                            Name: %s
+                            License: %s
+                            """
+                                .formatted(
+                                    driver.fullName(),
+                                    driver.licenseNumber()
+                                )
+            );
         });
     }
 
@@ -557,58 +495,45 @@ public class ArchiveView extends VerticalLayout {
 
         routeGrid.setSizeFull();
 
-        routeGrid.addColumn(
-                RouteSummaryView::routeCode
-        )
-        .setHeader("Route Code");
+        routeGrid.addColumn(RouteSummaryView::routeCode)
+                    .setHeader("Route Code");
 
-        routeGrid.addColumn(
-                RouteSummaryView::routeName
-        )
-        .setHeader("Route Name");
+        routeGrid.addColumn(RouteSummaryView::routeName)
+                    .setHeader("Route Name");
 
-        routeGrid.addColumn(
-                RouteSummaryView::stopCount
-        )
-        .setHeader("# Stops");
+        routeGrid.addColumn(RouteSummaryView::stopCount)
+                    .setHeader("No. of Stops");
 
+        // route action button components
         routeGrid.addComponentColumn(
-                route ->
-                        createActionButtons(
-                                "Route "
-                                        + route.routeCode(),
-                                () -> {
-                                    routeService
-                                            .hardDeleteRoute(
-                                                    route.id()
-                                            );
-
-                                    refreshRoutes();
-                                },
-                                () -> {
-                                    routeService
-                                            .unarchiveRoute(
-                                                    route.id()
-                                            );
-
-                                    refreshRoutes();
-                                }
-                        )
+                route -> createActionButtons(
+                                "Route " + route.routeCode(),
+                () -> {
+                    routeService.hardDeleteRoute(route.id());
+                    refreshRoutes();
+                },
+                () -> {
+                    routeService.unarchiveRoute(route.id());
+                    refreshRoutes();
+                }
+                )
         )
         .setHeader("Actions");
 
+        // double click to view driver details
         routeGrid.addItemDoubleClickListener(event -> {
-            var route = event.getItem();
-            showDetails(
-                                                "Archived Route",
-                                                """
-                                                Code: %s
-                                                Name: %s
-                                                """.formatted(
-                                                        route.routeCode(),
-                                                        route.routeName()
-                                                )
-                                        );
+        var route = event.getItem();
+            
+            showDetails("Archived Route",
+                            """
+                            Code: %s
+                            Name: %s
+                            """
+                                .formatted(
+                                    route.routeCode(),
+                                    route.routeName()
+                                )
+            );
         });
     }
 
@@ -617,205 +542,150 @@ public class ArchiveView extends VerticalLayout {
 
         dispatchGrid.setSizeFull();
 
-        dispatchGrid.addColumn(
-                DispatchAssignmentView::fleetUnitNumber
-        )
-        .setHeader("Bus");
+        dispatchGrid.addColumn(DispatchAssignmentView::fleetUnitNumber)
+                    .setHeader("Bus");
 
-        dispatchGrid.addColumn(
-                DispatchAssignmentView::driverName
-        )
-        .setHeader("Driver");
+        dispatchGrid.addColumn(DispatchAssignmentView::driverName)
+                    .setHeader("Driver");
 
-        dispatchGrid.addColumn(
-                DispatchAssignmentView::routeCode
-        )
-        .setHeader("Route");
+        dispatchGrid.addColumn(DispatchAssignmentView::routeCode)
+                    .setHeader("Route");
 
-        dispatchGrid.addColumn(
-                DispatchAssignmentView::dispatchStatus
-        )
-        .setHeader("Status");
+        dispatchGrid.addColumn(DispatchAssignmentView::dispatchStatus)
+                    .setHeader("Status");
 
         dispatchGrid.addComponentColumn(
-                dispatch ->
-                        createActionButtons(
-                                "Dispatch Assignment #"
-                                        + dispatch.id(),
-                                () -> {
-                                    dispatchService.hardDeleteAssignment(dispatch.id());
-                                    refreshDispatches();
-                                    detailsDialog.close();
-                                },
-                                () -> {
-                                    dispatchService
-                                            .unarchiveAssignment(
-                                                    dispatch.id()
-                                            );
-
-                                    refreshDispatches();
-                                }
-                        )
+                dispatch -> createActionButtons(
+                                "Dispatch Assignment " + dispatch.id(),
+                () -> {
+                    dispatchService.hardDeleteAssignment(dispatch.id());
+                    refreshDispatches();
+                    detailsDialog.close();
+                },
+                () -> {
+                    dispatchService.unarchiveAssignment(dispatch.id());
+                    refreshDispatches();
+                }
+                )
         )
         .setHeader("Actions");
 
         dispatchGrid.addItemDoubleClickListener(event -> {
-            var dispatch = event.getItem();
-            showDetails(
-                                                "Archived Dispatch",
-                                                """
-                                                Record ID: %s
-                                                Bus: %s
-                                                Driver: %s
-                                                Route: %s
-                                                Status: %s
-                                                """.formatted(
-                                                        dispatch.id(),
-                                                        dispatch.fleetUnitNumber(),
-                                                        dispatch.driverName(),
-                                                        dispatch.routeCode(),
-                                                        dispatch.dispatchStatus()
-                                                )
-                                        );
+        var dispatch = event.getItem();
+            showDetails("Archived Dispatch",
+                            """
+                            Record ID: %s
+                            Bus: %s
+                            Driver: %s
+                            Route: %s
+                            Status: %s
+                            """
+                                .formatted(
+                                    dispatch.id(),
+                                    dispatch.fleetUnitNumber(),
+                                    dispatch.driverName(),
+                                    dispatch.routeCode(),
+                                    dispatch.dispatchStatus()
+                                )
+            );
         });
     }
 
     // action buttons
     private HorizontalLayout createActionButtons(
-            String entityName,
-            Runnable deleteAction,
-            Runnable unarchiveAction) {
+                                        String entityName,
+                                        Runnable deleteAction,
+                                        Runnable unarchiveAction) {
+        
+    HorizontalLayout actions = new HorizontalLayout();
 
-        HorizontalLayout actions =
-                new HorizontalLayout();
-
+        // Restore
         if (unarchiveAction != null) {
-
-            Button unarchiveButton =
-                    new Button(
+            Button unarchiveButton = new Button(
                             VaadinIcon.ARROW_CIRCLE_UP.create()
-                    );
+            );
 
             unarchiveButton.addThemeVariants(
-                    ButtonVariant.LUMO_SUCCESS,
-                    ButtonVariant.LUMO_TERTIARY
+                            ButtonVariant.LUMO_SUCCESS,
+                            ButtonVariant.LUMO_TERTIARY
             );
 
-            unarchiveButton.setTooltipText(
-                    "Unarchive"
-            );
+            unarchiveButton.setTooltipText("Restore");
 
             unarchiveButton.addClickListener(
-                    event -> {
+            event -> {
+                    try {
+                        unarchiveAction.run();
+                        showSuccess(entityName + " has been restored.");
 
-                        try {
-
-                            unarchiveAction.run();
-
-                            showSuccess(
-                                    entityName
-                                            + " unarchived."
-                            );
-
-                        } catch (RuntimeException exception) {
-
-                            showError(
-                                    exception
-                                            .getMessage()
-                            );
-                        }
+                    } catch (RuntimeException exception) {
+                        showError(exception.getMessage());
                     }
+            }
             );
-
-            actions.add(
-                    unarchiveButton
-            );
+        actions.add(unarchiveButton);
         }
 
+        // HARD Delete
         if (deleteAction != null) {
-
-            Button deleteButton =
-                    new Button(
+            Button deleteButton = new Button(
                             VaadinIcon.TRASH.create()
-                    );
+            );
 
             deleteButton.addThemeVariants(
-                    ButtonVariant.LUMO_ERROR,
-                    ButtonVariant.LUMO_TERTIARY
+                            ButtonVariant.LUMO_ERROR,
+                            ButtonVariant.LUMO_TERTIARY
             );
 
-            deleteButton.setTooltipText(
-                    "Delete Permanently"
-            );
+            deleteButton.setTooltipText("Delete Permanently");
 
             deleteButton.addClickListener(
-                    event ->
-                            openDeleteDialog(
-                                    entityName,
-                                    deleteAction
-                            )
+            event ->
+                    openDeleteDialog(entityName, deleteAction)
             );
 
-            actions.add(
-                    deleteButton
-            );
+        actions.add(deleteButton);
         }
-
         return actions;
     }
 
-    // hard delete confirmation
+    // hard delete dialog confirmation
     private void openDeleteDialog(
-            String entityName,
-            Runnable deleteAction) {
+                        String entityName,
+                        Runnable deleteAction) {
 
-        ConfirmationDialog dialog =
-                new ConfirmationDialog();
+    ConfirmationDialog dialog = new ConfirmationDialog();
 
-        dialog.setHeader(
-                "Permanently Delete "
-                        + entityName
-                        + "?"
-        );
-
+        // sets the deletion dialog description
+        dialog.setHeader("Permanently Delete " + entityName + "?");
         dialog.setText(
-                "This action cannot be undone. It removes the archived record. "
-                        + "Audit and retained business history remain. Linked records may prevent deletion."
+                "This action cannot be undone. "
+                + "Once deleted, the selected record cannot be restored. "
+                + "The transaction records of this record will remain. "
+                + "Linked active records may prevent deletion."
         );
 
+        // delete button
         dialog.setCancelable(true);
-
-        dialog.setConfirmText(
-                "Delete Permanently"
-        );
-
-        dialog.setConfirmButtonTheme(
-                "error primary"
-        );
+        dialog.setConfirmText("Delete Permanently");
+        dialog.setConfirmButtonTheme("error primary");
 
         dialog.addConfirmListener(
-                event -> {
+            event -> {
+                 try {
+                    deleteAction.run();
+                    showSuccess(entityName + " is now permanently deleted.");
 
-                    try {
-
-                        deleteAction.run();
-
-                        showSuccess(
-                                entityName
-                                        + " permanently deleted."
-                        );
-
-                    } catch (RuntimeException exception) {
-
-                        ApplicationErrors.show(exception);
-                    }
+                } catch (RuntimeException exception) {
+                    ApplicationErrors.show(exception);
                 }
+            }
         );
 
-        dialog.open();
+    dialog.open();
     }
 
-    // details panel
+    // show details panel
     private void showDetails(String title, String content) {
         detailsDialog.removeAll();
         detailsDialog.setHeaderTitle(title);
@@ -825,9 +695,6 @@ public class ArchiveView extends VerticalLayout {
         detailsDialog.open();
     }
 
-    // side panel
-
-
     // hide side panel
     private void closeDetails() {
         detailsDialog.close();
@@ -835,7 +702,6 @@ public class ArchiveView extends VerticalLayout {
 
     // refresh all archives
     private void refreshAll() {
-
         refreshFleet();
         refreshDrivers();
         refreshRoutes();
@@ -846,52 +712,40 @@ public class ArchiveView extends VerticalLayout {
         reportGrid.getDataProvider().refreshAll();
     }
 
-    // refresh fleet archive
+    // refresh archived fleets grid
     private void refreshFleet() {
+    List<FleetUnitSummaryView> items = fleetService
+                                                .searchArchivedUnits(
+                                                        PageRequest.of(0, 100)
+                                                )
+                                                .getContent();
 
-        List<FleetUnitSummaryView> items =
-                fleetService
-                        .searchArchivedUnits(
-                                PageRequest.of(0, 100)
-                        )
-                        .getContent();
-
-        fleetGrid.setItems(
-                filterFleet(items)
-        );
+        fleetGrid.setItems(filterFleet(items));
     }
 
-    // refresh driver archive
+    // refresh archived drivers
     private void refreshDrivers() {
+    List<DriverSummaryView> items = driverService
+                                            .searchArchivedDrivers(
+                                                    PageRequest.of(0, 100)
+                                            )
+                                            .getContent();
 
-        List<DriverSummaryView> items =
-                driverService
-                        .searchArchivedDrivers(
-                                PageRequest.of(0, 100)
-                        )
-                        .getContent();
-
-        driverGrid.setItems(
-                filterDrivers(items)
-        );
+        driverGrid.setItems(filterDrivers(items));
     }
 
-    // refresh route archive
+    // refresh archived routes
     private void refreshRoutes() {
+    List<RouteSummaryView> items = routeService
+                                        .searchArchivedRoutes(
+                                                PageRequest.of(0, 100)
+                                        )
+                                        .getContent();
 
-        List<RouteSummaryView> items =
-                routeService
-                        .searchArchivedRoutes(
-                                PageRequest.of(0, 100)
-                        )
-                        .getContent();
-
-        routeGrid.setItems(
-                filterRoutes(items)
-        );
+        routeGrid.setItems(filterRoutes(items));
     }
 
-    // refresh dispatch archive
+    // refresh archive dispatch assignments
     private void refreshDispatches() {
 
         List<DispatchAssignmentView> items =
