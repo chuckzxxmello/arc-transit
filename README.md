@@ -23,10 +23,10 @@
 
 # Additional
 
-1. [**detailed overview**](docs\arc-transit.md)
+1. [**detailed overview**](docs/arc-transit.md)
 2. [**progress tracking**](edit.md)
 3. [**what I'm still working at**](#what-im-still-working-at)
-4. [**additional features plan**](docs\additional-features.md)
+4. [**additional features plan**](docs/additional-features.md)
 
 
 ## 1. Problem statement and proposed solution
