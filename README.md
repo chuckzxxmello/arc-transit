@@ -1,7 +1,7 @@
 # Arc Transit
 ### Transit Operations Coordination and Operational-State Reconciliation Platform
 
-![image](docs\arc-ui-1.png)
+![image](docs/arc-ui-1.png)
 
 **Arc Transit** is a web-based application for maintaining bus, driver, route, dispatch, incident, maintenance, and operational-report records. Just like other Transportation and Fleet Management systems, Arc Transit helps staff coordinate fleet, driver, routes and schedules with an additional features that includes reviewing whether records are linked and connected, review how recorded conditions changed over time, and assess exceptions and conflicts regarding transportation issues. With Human-entered information as a primary source of its operational data.
 
@@ -23,10 +23,10 @@
 
 # Additional
 
-1. [**detailed overview**](docs\arc-transit.md)
+1. [**detailed overview**](docs/arc-transit.md)
 2. [**progress tracking**](edit.md)
 3. [**what I'm still working at**](#what-im-still-working-at)
-4. [**additional features plan**](docs\additional-features.md)
+4. [**additional features plan**](docs/additional-features.md)
 
 
 ## 1. Problem statement and proposed solution
